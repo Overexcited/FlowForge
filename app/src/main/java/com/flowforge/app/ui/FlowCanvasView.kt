@@ -16,12 +16,18 @@ class FlowCanvasView(context: Context) : View(context) {
     var onDoubleTapElement: ((FlowElement) -> Unit)? = null
     var onNotesTap: ((FlowElement) -> Unit)? = null
     var onElementAction: ((FlowElement) -> Unit)? = null
+    var onConnectionRequested: ((String, String) -> Unit)? = null
+    var onConnectionCancelled: (() -> Unit)? = null
     var onMoveFinished: ((FlowElement, Float, Float) -> Unit)? = null
     var onResizeFinished: ((FlowElement, Float, Float, Float, Float) -> Unit)? = null
     var gridVisible = true
     var snapToGrid = true
     var gridSize = 40f
     var darkMode = false
+    var connectionMode = false
+        private set
+    private var connectionStartId: String? = null
+    private var connectionPreview = PointF()
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = Typeface.DEFAULT }
@@ -59,6 +65,7 @@ class FlowCanvasView(context: Context) : View(context) {
         if (gridVisible) drawGrid(c)
         document.connections.forEach { drawConnection(c, it) }
         document.elements.forEach { drawElement(c, it) }
+        if (connectionMode && connectionStartId != null) drawConnectionPreview(c)
         if (includeSelection) selectedElement()?.let { drawSelection(c, it) }
     }
 
@@ -125,15 +132,75 @@ class FlowCanvasView(context: Context) : View(context) {
     private fun drawBadge(c:Canvas,x:Float,y:Float,info:Boolean){ paint.style=Paint.Style.FILL;paint.color=0xfff59e0b.toInt();c.drawCircle(x,y,10f,paint);textPaint.color=Color.WHITE;textPaint.textSize=13f;c.drawText(if(info)"i" else "!",x-2.3f,y+4.5f,textPaint) }
 
     private fun drawConnection(c: Canvas, con: FlowConnection) {
-        val a=document.elements.firstOrNull{it.id==con.fromId} ?: return; val b=document.elements.firstOrNull{it.id==con.toId} ?: return
-        val x1=a.x+a.width/2; val y1=a.y+a.height/2; val x2=b.x+b.width/2; val y2=b.y+b.height/2
-        val p=Path().apply{moveTo(x1,y1); if(con.bendX!=0f||con.bendY!=0f) quadTo((x1+x2)/2+con.bendX,(y1+y2)/2+con.bendY,x2,y2) else lineTo(x2,y2)}
-        paint.style=Paint.Style.STROKE; paint.strokeWidth=if(con.id==selectedConnectionId)7f else 3.5f; paint.color=if(con.id==selectedConnectionId)0xff2563eb.toInt() else if(darkMode)0xff94a3b8.toInt() else 0xff475569.toInt()
-        paint.pathEffect=when(con.lineStyle){LineStyle.DASHED->DashPathEffect(floatArrayOf(18f,12f),0f);LineStyle.DOTTED->DashPathEffect(floatArrayOf(4f,10f),0f);else->null};c.drawPath(p,paint);paint.pathEffect=null
-        if(con.arrowType!=ArrowType.NONE) drawArrow(c,x1,y1,x2,y2,con.arrowType)
-        if(con.label.isNotBlank()){textPaint.color=if(darkMode)Color.WHITE else 0xff334155.toInt();textPaint.textSize=21f;c.drawText(con.label,(x1+x2)/2+con.bendX/2,(y1+y2)/2+con.bendY/2,textPaint)}
-        if(con.notes.isNotBlank()) drawBadge(c,(x1+x2)/2+con.bendX/2+12,(y1+y2)/2+con.bendY/2-12,false)
+        val a=document.elements.firstOrNull{it.id==con.fromId} ?: return
+        val b=document.elements.firstOrNull{it.id==con.toId} ?: return
+        val pair=document.connections.filter{it.fromId==con.fromId && it.toId==con.toId}
+        val pairIndex=pair.indexOfFirst{it.id==con.id}.coerceAtLeast(0)
+        val (p1,p2)=connectionEndpoints(a,b,pairIndex,pair.size)
+        val path=buildConnectionPath(p1,p2,con.bendX,con.bendY,pairIndex)
+        paint.style=Paint.Style.STROKE
+        paint.strokeWidth=if(con.id==selectedConnectionId)7f else 3.5f
+        paint.color=if(con.id==selectedConnectionId)0xff2563eb.toInt() else if(darkMode)0xffcbd5e1.toInt() else 0xff475569.toInt()
+        paint.pathEffect=when(con.lineStyle){LineStyle.DASHED->DashPathEffect(floatArrayOf(18f,12f),0f);LineStyle.DOTTED->DashPathEffect(floatArrayOf(4f,10f),0f);else->null}
+        c.drawPath(path,paint);paint.pathEffect=null
+        val tangent=pathTangent(p1,p2,con.bendX,con.bendY,pairIndex)
+        if(con.arrowType!=ArrowType.NONE) drawArrow(c,tangent.first.x,tangent.first.y,tangent.second.x,tangent.second.y,con.arrowType)
+        val mid=connectionMidpoint(p1,p2,con.bendX,con.bendY,pairIndex)
+        if(con.label.isNotBlank()){textPaint.color=if(darkMode)Color.WHITE else 0xff334155.toInt();textPaint.textSize=21f;c.drawText(con.label,mid.x+6,mid.y-6,textPaint)}
+        if(con.notes.isNotBlank()) drawBadge(c,mid.x+12,mid.y-18,false)
     }
+
+    private fun connectionEndpoints(a:FlowElement,b:FlowElement,index:Int,count:Int):Pair<PointF,PointF>{
+        val acx=a.x+a.width/2f; val acy=a.y+a.height/2f; val bcx=b.x+b.width/2f; val bcy=b.y+b.height/2f
+        val dx=bcx-acx; val dy=bcy-acy
+        val side = if(abs(dy)>=abs(dx)){if(dy>=0)1 else 3}else{if(dx>=0)2 else 4}
+        val spread=if(count<=1)0f else ((index-(count-1)/2f)*28f)
+        fun point(e:FlowElement,side:Int,offset:Float):PointF=when(side){1->PointF(e.x+e.width/2f+offset,e.y+e.height);3->PointF(e.x+e.width/2f+offset,e.y);2->PointF(e.x+e.width,e.y+e.height/2f+offset);else->PointF(e.x,e.y+e.height/2f+offset)}
+        val opposite=when(side){1->3;3->1;2->4;else->2}
+        return point(a,side,spread) to point(b,opposite,spread)
+    }
+
+    private fun buildConnectionPath(p1:PointF,p2:PointF,bx:Float,by:Float,index:Int):Path{
+        val p=Path().apply{moveTo(p1.x,p1.y)}
+        val dx=p2.x-p1.x; val dy=p2.y-p1.y
+        if(bx!=0f||by!=0f){
+            quadTo((p1.x+p2.x)/2f+bx,(p1.y+p2.y)/2f+by,p2.x,p2.y)
+        }else if(abs(dy)>=abs(dx)){
+            val mid=(p1.y+p2.y)/2f + if(index%2==0) 0f else 18f
+            cubicTo(p1.x,mid,p2.x,mid,p2.x,p2.y)
+        }else{
+            val mid=(p1.x+p2.x)/2f + if(index%2==0) 0f else 18f
+            cubicTo(mid,p1.y,mid,p2.y,p2.x,p2.y)
+        }
+        return p
+    }
+
+    private fun connectionMidpoint(p1:PointF,p2:PointF,bx:Float,by:Float,index:Int):PointF{
+        return PointF((p1.x+p2.x)/2f+bx/2f,(p1.y+p2.y)/2f+by/2f)
+    }
+
+    private fun pathTangent(p1:PointF,p2:PointF,bx:Float,by:Float,index:Int):Pair<PointF,PointF>{
+        val dx=p2.x-p1.x; val dy=p2.y-p1.y
+        return if(abs(dy)>=abs(dx)){
+            val mid=(p1.y+p2.y)/2f + if(index%2==0)0f else 18f
+            PointF(p2.x,mid) to p2
+        }else{
+            val mid=(p1.x+p2.x)/2f + if(index%2==0)0f else 18f
+            PointF(mid,p2.y) to p2
+        }
+    }
+
+    private fun drawConnectionPreview(c:Canvas){
+        val start=document.elements.firstOrNull{it.id==connectionStartId} ?: return
+        val end=connectionPreview
+        paint.style=Paint.Style.STROKE;paint.strokeWidth=5f;paint.color=0xff2563eb.toInt();paint.pathEffect=DashPathEffect(floatArrayOf(14f,10f),0f)
+        val p=Path().apply{moveTo(start.x+start.width/2f,start.y+start.height/2f);quadTo((start.x+start.width/2f+end.x)/2f,(start.y+start.height/2f+end.y)/2f,end.x,end.y)}
+        c.drawPath(p,paint);paint.pathEffect=null
+    }
+
+    fun beginConnectionMode(){ connectionMode=true; connectionStartId=null; connectionPreview.set(0f,0f); invalidate(); onSelectionChanged?.invoke() }
+    fun beginConnectionFrom(id:String){ connectionMode=true; connectionStartId=id; selectedElementId=id; selectedConnectionId=null; invalidate(); onSelectionChanged?.invoke() }
+    fun cancelConnectionMode(){ connectionMode=false; connectionStartId=null; invalidate(); onConnectionCancelled?.invoke(); onSelectionChanged?.invoke() }
 
     private fun drawArrow(c:Canvas,x1:Float,y1:Float,x2:Float,y2:Float,type:ArrowType){
         val ang=atan2(y2-y1,x2-x1); val len=20f
@@ -146,7 +213,13 @@ class FlowCanvasView(context: Context) : View(context) {
         when(event.actionMasked){
             MotionEvent.ACTION_DOWN->{
                 gestureMoved=false;lastX=event.x;lastY=event.y
-                val w=world(event.x,event.y); val selected=selectedElement()
+                val w=world(event.x,event.y)
+                if(connectionMode){
+                    val hit=hitElement(w.x,w.y)
+                    if(connectionStartId==null && hit!=null){connectionStartId=hit.id;selectedElementId=hit.id;selectedConnectionId=null;connectionPreview.set(w.x,w.y);invalidate();onSelectionChanged?.invoke();return true}
+                    if(connectionStartId!=null){connectionPreview.set(w.x,w.y);invalidate();return true}
+                }
+                val selected=selectedElement()
                 if(selected!=null){
                     if(lastActionButton.contains(w.x,w.y)){onElementAction?.invoke(selected);return true}
                     if(!lastNotesButton.isEmpty && lastNotesButton.contains(w.x,w.y)){onNotesTap?.invoke(selected);return true}
@@ -162,18 +235,25 @@ class FlowCanvasView(context: Context) : View(context) {
             MotionEvent.ACTION_MOVE->{
                 if(event.pointerCount>1){gestureMoved=true;return true}
                 val w=world(event.x,event.y)
+                if(connectionMode && connectionStartId!=null){connectionPreview.set(w.x,w.y);gestureMoved=true;invalidate();return true}
                 if(resizeId!=null){resize(selectedElement() ?: return true,w.x,w.y);gestureMoved=true}
                 else if(dragId!=null){selectedElement()?.let{it.x=w.x-dragOffsetX;it.y=w.y-dragOffsetY;if(snapToGrid){it.x=round(it.x/gridSize)*gridSize;it.y=round(it.y/gridSize)*gridSize}};gestureMoved=true}
                 else {panX+=event.x-lastX;panY+=event.y-lastY;gestureMoved=true}
                 lastX=event.x;lastY=event.y;invalidate();return true
             }
             MotionEvent.ACTION_UP->{
+                if(connectionMode && connectionStartId!=null){
+                    val w=world(event.x,event.y);val target=hitElement(w.x,w.y);val source=connectionStartId
+                    if(target!=null && target.id!=source){onConnectionRequested?.invoke(source!!,target.id);return true}
+                    if(!gestureMoved && target==null){connectionStartId=null;invalidate();onSelectionChanged?.invoke()}
+                    return true
+                }
                 val e=selectedElement()
                 if(dragId!=null && e!=null && (e.x!=startMoveX||e.y!=startMoveY)) onMoveFinished?.invoke(e,startMoveX,startMoveY)
                 if(resizeId!=null && e!=null){val old=startResize;if(old.left!=e.x||old.top!=e.y||old.width()!=e.width||old.height()!=e.height)onResizeFinished?.invoke(e,old.left,old.top,old.width(),old.height())}
                 dragId=null;resizeId=null;resizeHandle=Handle.NONE;return true
             }
-            MotionEvent.ACTION_CANCEL->{dragId=null;resizeId=null;resizeHandle=Handle.NONE;return true}
+            MotionEvent.ACTION_CANCEL->{dragId=null;resizeId=null;resizeHandle=Handle.NONE;if(connectionMode)cancelConnectionMode();return true}
         };return true
     }
 
