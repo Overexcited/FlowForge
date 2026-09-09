@@ -102,9 +102,9 @@ class FlowCanvasView(context: Context) : View(context) {
             ShapeType.OVAL -> c.drawOval(r, paint)
             ShapeType.PARALLELOGRAM -> c.drawPath(Path().apply { val s=min(25f,r.width()*0.18f); moveTo(r.left+s,r.top); lineTo(r.right,r.top); lineTo(r.right-s,r.bottom); lineTo(r.left,r.bottom); close() }, paint)
             ShapeType.CYLINDER -> { val ry=min(18f,r.height()/5f); c.drawRoundRect(r, ry, ry, paint) }
-            ShapeType.DOCUMENT -> c.drawPath(Path().apply { moveTo(r.left,r.top); lineTo(r.right,r.top); lineTo(r.right,r.bottom-14); quadraticTo(r.centerX(),r.bottom+10,r.left,r.bottom-14); close() }, paint)
+            ShapeType.DOCUMENT -> c.drawPath(Path().apply { moveTo(r.left,r.top); lineTo(r.right,r.top); lineTo(r.right,r.bottom-14); quadTo(r.centerX(),r.bottom+10,r.left,r.bottom-14); close() }, paint)
             ShapeType.HEXAGON -> c.drawPath(Path().apply { val s=min(r.width()*0.18f,r.height()*0.35f); moveTo(r.left+s,r.top); lineTo(r.right-s,r.top); lineTo(r.right,r.centerY()); lineTo(r.right-s,r.bottom); lineTo(r.left+s,r.bottom); lineTo(r.left,r.centerY()); close() }, paint)
-            ShapeType.CLOUD -> c.drawPath(Path().apply { addOval(RectF(r.left,r.top+r.height()*0.2f,r.left+r.width()*0.55f,r.bottom)); addOval(RectF(r.left+r.width()*0.28f,r.top,r.right-r.width()*0.18f,r.bottom)); addOval(RectF(r.right-r.width()*0.48f,r.top+r.height()*0.18f,r.right,r.bottom)); close() }, paint)
+            ShapeType.CLOUD -> c.drawPath(Path().apply { addOval(RectF(r.left,r.top+r.height()*0.2f,r.left+r.width()*0.55f,r.bottom), Path.Direction.CW); addOval(RectF(r.left+r.width()*0.28f,r.top,r.right-r.width()*0.18f,r.bottom), Path.Direction.CW); addOval(RectF(r.right-r.width()*0.48f,r.top+r.height()*0.18f,r.right,r.bottom), Path.Direction.CW); close() }, paint)
             ShapeType.CIRCLE -> c.drawOval(r, paint)
         }
     }
