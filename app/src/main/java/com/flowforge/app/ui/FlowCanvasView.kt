@@ -7,6 +7,7 @@ import com.flowforge.app.model.*
 import kotlin.math.*
 
 class FlowCanvasView(context: Context) : View(context) {
+    init { isFocusable = true; isClickable = true }
     var document: FlowDocument = FlowDocument()
         set(value) { field = value; invalidate() }
     var selectedElementId: String? = null
@@ -62,7 +63,7 @@ class FlowCanvasView(context: Context) : View(context) {
     }
 
     private fun drawGrid(c: Canvas) {
-        gridPaint.color = if (darkMode) 0x223b4a63 else 0x18374758
+        gridPaint.color = if (darkMode) 0x405b7088 else 0x30475a6b
         gridPaint.strokeWidth = 1f
         val left = floor((-panX / scale) / gridSize).toInt() * gridSize
         val top = floor((-panY / scale) / gridSize).toInt() * gridSize
@@ -102,7 +103,7 @@ class FlowCanvasView(context: Context) : View(context) {
             ShapeType.OVAL -> c.drawOval(r, paint)
             ShapeType.PARALLELOGRAM -> c.drawPath(Path().apply { val s=min(25f,r.width()*0.18f); moveTo(r.left+s,r.top); lineTo(r.right,r.top); lineTo(r.right-s,r.bottom); lineTo(r.left,r.bottom); close() }, paint)
             ShapeType.CYLINDER -> { val ry=min(18f,r.height()/5f); c.drawRoundRect(r, ry, ry, paint) }
-            ShapeType.DOCUMENT -> c.drawPath(Path().apply { moveTo(r.left,r.top); lineTo(r.right,r.top); lineTo(r.right,r.bottom-14); quadTo(r.centerX(),r.bottom+10,r.left,r.bottom-14); close() }, paint)
+            ShapeType.DOCUMENT -> c.drawPath(Path().apply { moveTo(r.left,r.top); lineTo(r.right,r.top); lineTo(r.right,r.bottom-14); quadraticTo(r.centerX(),r.bottom+10,r.left,r.bottom-14); close() }, paint)
             ShapeType.HEXAGON -> c.drawPath(Path().apply { val s=min(r.width()*0.18f,r.height()*0.35f); moveTo(r.left+s,r.top); lineTo(r.right-s,r.top); lineTo(r.right,r.centerY()); lineTo(r.right-s,r.bottom); lineTo(r.left+s,r.bottom); lineTo(r.left,r.centerY()); close() }, paint)
             ShapeType.CLOUD -> c.drawPath(Path().apply { addOval(RectF(r.left,r.top+r.height()*0.2f,r.left+r.width()*0.55f,r.bottom), Path.Direction.CW); addOval(RectF(r.left+r.width()*0.28f,r.top,r.right-r.width()*0.18f,r.bottom), Path.Direction.CW); addOval(RectF(r.right-r.width()*0.48f,r.top+r.height()*0.18f,r.right,r.bottom), Path.Direction.CW); close() }, paint)
             ShapeType.CIRCLE -> c.drawOval(r, paint)

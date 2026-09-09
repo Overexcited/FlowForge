@@ -16,6 +16,7 @@ import com.flowforge.app.model.*
 import com.flowforge.app.templates.Templates
 import com.flowforge.app.ui.FlowCanvasView
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 class MainActivity : Activity() {
     private lateinit var canvas: FlowCanvasView
@@ -44,8 +45,16 @@ class MainActivity : Activity() {
     }
 
     private fun buildUi() {
-        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.WHITE) }
-        val toolbar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(6,6,6,4) }
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.WHITE)
+        }
+        val toolbar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(6), dp(4), dp(6), dp(4))
+            minimumHeight = dp(52)
+        }
         toolbar.addView(actionButton("New") { newDocument() })
         toolbar.addView(actionButton("Undo") { undo() }.also { undoButton = it })
         toolbar.addView(actionButton("Redo") { redo() }.also { redoButton = it })
@@ -56,10 +65,15 @@ class MainActivity : Activity() {
         toolbar.addView(actionButton("Export") { exportMenu() })
         toolbar.addView(actionButton("Import") { importMenu() })
         toolbar.addView(actionButton("Settings") { settings() })
-        root.addView(HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled=false; addView(toolbar) }, LinearLayout.LayoutParams(-1, WRAP_CONTENT))
+        root.addView(HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            isFillViewport = true
+            setBackgroundColor(0xfff1f5f9.toInt())
+            addView(toolbar, LinearLayout.LayoutParams(WRAP_CONTENT, dp(52)))
+        }, LinearLayout.LayoutParams(-1, dp(52)))
 
-        status = TextView(this).apply { textSize=12f; setPadding(12,2,12,5); setTextColor(0xff475569.toInt()) }
-        root.addView(status)
+        status = TextView(this).apply { textSize=12f; gravity=Gravity.CENTER_VERTICAL; setPadding(dp(12),0,dp(12),0); setTextColor(0xff334155.toInt()); setBackgroundColor(0xffe2e8f0.toInt()) }
+        root.addView(status, LinearLayout.LayoutParams(-1, dp(28)))
         contextBar = LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; gravity=Gravity.CENTER_VERTICAL; setPadding(8,4,8,5); visibility=View.GONE }
         root.addView(contextBar)
         canvas = FlowCanvasView(this)
@@ -79,8 +93,14 @@ class MainActivity : Activity() {
     }
 
     private fun actionButton(label:String, action:()->Unit) = Button(this).apply {
-        text=label; textSize=11f; minHeight=0; minimumHeight=0; setPadding(10,2,10,2); setOnClickListener{action()}
-        layoutParams=LinearLayout.LayoutParams(WRAP_CONTENT,WRAP_CONTENT)
+        text=label
+        textSize=12f
+        minHeight=0
+        minimumHeight=0
+        setPadding(dp(10), 0, dp(10), 0)
+        isAllCaps=false
+        setOnClickListener{action()}
+        layoutParams=LinearLayout.LayoutParams(WRAP_CONTENT, dp(46)).apply { setMargins(dp(2), dp(3), dp(2), dp(3)) }
     }
 
     private fun updateUi() {
@@ -152,7 +172,7 @@ class MainActivity : Activity() {
             val before=doc.deepCopy();e.label=label.text.toString();e.notes=notes.text.toString();e.shape=shapes[spinner.selectedItemPosition];history.record(before,doc.deepCopy());canvas.invalidate();updateUi()
         }.setNeutralButton("Reset default"){_,_->resetElement(e)}.setNegativeButton("Cancel",null).show()
     }
-    private fun resetElement(e:FlowElement){val before=doc.deepCopy();e.shape=defaultShapeFor(e.type);e.width=180f;e.height=90f;history.record(before,doc.deepCopy());canvas.invalidate();updateUi()}
+    private fun resetElement(e:FlowElement){val before=doc.deepCopy();e.shape=FlowElement.defaultShape(e.type);e.width=180f;e.height=90f;history.record(before,doc.deepCopy());canvas.invalidate();updateUi()}
 
     private fun showConnectionEditor(c:FlowConnection){
         val box=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(22,8,22,4)}
@@ -210,7 +230,7 @@ class MainActivity : Activity() {
     }
     private fun importMenu(){AlertDialog.Builder(this).setTitle("Import").setItems(arrayOf("FlowForge JSON","Mermaid")){_,w->openFile(if(w==0)arrayOf("application/json","text/*") else arrayOf("text/*"),if(w==0)OPEN_JSON else OPEN_MERMAID)}.show()}
     private fun saveText(text:String,mime:String,name:String,request:Int){pendingText=text;startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply{type=mime;putExtra(Intent.EXTRA_TITLE,name)},request)}
-    private fun createFile(mime:String,name:String,request:Int){startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply{type=mime;putExtra(Intent.EXTRA_TITLE,name)},request)}
+    private fun createFile(mime:String,name:String,request:Int){pendingRequest=request;startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply{type=mime;putExtra(Intent.EXTRA_TITLE,name)},request)}
     private fun openFile(types:Array<String>,request:Int){startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply{type=types.first();putExtra(Intent.EXTRA_MIME_TYPES,types);addCategory(Intent.CATEGORY_OPENABLE)},request)}
 
     override fun onActivityResult(requestCode:Int,resultCode:Int,data:Intent?){super.onActivityResult(requestCode,resultCode,data);if(resultCode!=RESULT_OK||data?.data==null)return;val uri=data.data!!
@@ -246,6 +266,7 @@ class MainActivity : Activity() {
     private fun applyPreferences(){canvas.gridVisible=prefs.getBoolean("gridVisible",true);canvas.snapToGrid=prefs.getBoolean("snapToGrid",true);canvas.gridSize=prefs.getFloat("gridSize",40f);canvas.darkMode=prefs.getBoolean("darkMode",false);canvas.document=doc;updateUi()}
 
     private fun shapeName(s:ShapeType)=s.name.lowercase().replace('_',' ').replaceFirstChar{it.uppercase()}
+    private fun dp(v:Int)= (v * resources.displayMetrics.density).roundToInt()
     private fun toast(s:String)=Toast.makeText(this,s,Toast.LENGTH_SHORT).show()
 }
 
