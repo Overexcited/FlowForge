@@ -150,7 +150,7 @@ class MainActivity : Activity() {
         box.addView(label);box.addView(TextView(this).apply{text="Shape";setPadding(0,12,0,3)});box.addView(spinner);box.addView(notes)
         AlertDialog.Builder(this).setTitle("Edit element").setView(box).setPositiveButton("Save"){_,_->
             val before=doc.deepCopy();e.label=label.text.toString();e.notes=notes.text.toString();e.shape=shapes[spinner.selectedItemPosition];history.record(before,doc.deepCopy());canvas.invalidate();updateUi()
-        }.setNeutralButton("Reset default"){_,->resetElement(e)}.setNegativeButton("Cancel",null).show()
+        }.setNeutralButton("Reset default"){_,_->resetElement(e)}.setNegativeButton("Cancel",null).show()
     }
     private fun resetElement(e:FlowElement){val before=doc.deepCopy();e.shape=defaultShapeFor(e.type);e.width=180f;e.height=90f;history.record(before,doc.deepCopy());canvas.invalidate();updateUi()}
 

@@ -188,7 +188,7 @@ class FlowCanvasView(context: Context) : View(context) {
     private fun world(x:Float,y:Float)=PointF((x-panX)/scale,(y-panY)/scale)
     private fun selectedElement()=document.elements.firstOrNull{it.id==selectedElementId}
     private fun hitElement(x:Float,y:Float)=document.elements.asReversed().firstOrNull{hitShape(it,x,y)}
-    private fun hitShape(e:FlowElement,x:Float,y:Float):Boolean{val r=RectF(e.x,e.y,e.x+e.width,e.y+e.height);return when(e.shape){ShapeType.DIAMOND->abs(x-r.centerX())/r.width+abs(y-r.centerY())/r.height<=.5f;else->r.contains(x,y)}}
+    private fun hitShape(e:FlowElement,x:Float,y:Float):Boolean{val r=RectF(e.x,e.y,e.x+e.width,e.y+e.height);return when(e.shape){ShapeType.DIAMOND->abs(x-r.centerX())/r.width()+abs(y-r.centerY())/r.height()<=.5f;else->r.contains(x,y)}}
     private fun hitConnection(x:Float,y:Float):FlowConnection?=document.connections.asReversed().firstOrNull{con->val a=document.elements.firstOrNull{it.id==con.fromId}?:return@firstOrNull false;val b=document.elements.firstOrNull{it.id==con.toId}?:return@firstOrNull false;val mx=(a.x+b.x+a.width+b.width)/4+con.bendX/2;val my=(a.y+b.y+a.height+b.height)/4+con.bendY/2;hypot(x-mx,y-my)<30f}
     private fun wrap(s:String,max:Int):List<String>{if(s.isBlank())return listOf("");val out=mutableListOf<String>();var rest=s;while(rest.length>max){val cut=rest.substring(0,max).lastIndexOf(' ').let{if(it>0)it else max};out+=rest.substring(0,cut);rest=rest.substring(cut).trimStart()};out+=rest;return out}
     fun resetViewport(){scale=1f;panX=0f;panY=0f;invalidate()}
