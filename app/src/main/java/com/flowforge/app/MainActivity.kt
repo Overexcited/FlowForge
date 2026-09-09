@@ -230,7 +230,7 @@ class MainActivity : Activity() {
     }
     private fun importMenu(){AlertDialog.Builder(this).setTitle("Import").setItems(arrayOf("FlowForge JSON","Mermaid")){_,w->openFile(if(w==0)arrayOf("application/json","text/*") else arrayOf("text/*"),if(w==0)OPEN_JSON else OPEN_MERMAID)}.show()}
     private fun saveText(text:String,mime:String,name:String,request:Int){pendingText=text;startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply{type=mime;putExtra(Intent.EXTRA_TITLE,name)},request)}
-    private fun createFile(mime:String,name:String,request:Int){pendingRequest=request;startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply{type=mime;putExtra(Intent.EXTRA_TITLE,name)},request)}
+    private fun createFile(mime:String,name:String,request:Int){startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply{type=mime;putExtra(Intent.EXTRA_TITLE,name)},request)}
     private fun openFile(types:Array<String>,request:Int){startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply{type=types.first();putExtra(Intent.EXTRA_MIME_TYPES,types);addCategory(Intent.CATEGORY_OPENABLE)},request)}
 
     override fun onActivityResult(requestCode:Int,resultCode:Int,data:Intent?){super.onActivityResult(requestCode,resultCode,data);if(resultCode!=RESULT_OK||data?.data==null)return;val uri=data.data!!
