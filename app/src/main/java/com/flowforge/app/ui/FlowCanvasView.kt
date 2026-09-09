@@ -161,16 +161,17 @@ class FlowCanvasView(context: Context) : View(context) {
     }
 
     private fun buildConnectionPath(p1:PointF,p2:PointF,bx:Float,by:Float,index:Int):Path{
-        val p=Path().apply{moveTo(p1.x,p1.y)}
+        val p=Path()
+        p.moveTo(p1.x,p1.y)
         val dx=p2.x-p1.x; val dy=p2.y-p1.y
         if(bx!=0f||by!=0f){
-            quadTo((p1.x+p2.x)/2f+bx,(p1.y+p2.y)/2f+by,p2.x,p2.y)
+            p.quadTo((p1.x+p2.x)/2f+bx,(p1.y+p2.y)/2f+by,p2.x,p2.y)
         }else if(abs(dy)>=abs(dx)){
             val mid=(p1.y+p2.y)/2f + if(index%2==0) 0f else 18f
-            cubicTo(p1.x,mid,p2.x,mid,p2.x,p2.y)
+            p.cubicTo(p1.x,mid,p2.x,mid,p2.x,p2.y)
         }else{
             val mid=(p1.x+p2.x)/2f + if(index%2==0) 0f else 18f
-            cubicTo(mid,p1.y,mid,p2.y,p2.x,p2.y)
+            p.cubicTo(mid,p1.y,mid,p2.y,p2.x,p2.y)
         }
         return p
     }
@@ -194,7 +195,7 @@ class FlowCanvasView(context: Context) : View(context) {
         val start=document.elements.firstOrNull{it.id==connectionStartId} ?: return
         val end=connectionPreview
         paint.style=Paint.Style.STROKE;paint.strokeWidth=5f;paint.color=0xff2563eb.toInt();paint.pathEffect=DashPathEffect(floatArrayOf(14f,10f),0f)
-        val p=Path().apply{moveTo(start.x+start.width/2f,start.y+start.height/2f);quadTo((start.x+start.width/2f+end.x)/2f,(start.y+start.height/2f+end.y)/2f,end.x,end.y)}
+        val p=Path();p.moveTo(start.x+start.width/2f,start.y+start.height/2f);p.quadTo((start.x+start.width/2f+end.x)/2f,(start.y+start.height/2f+end.y)/2f,end.x,end.y)
         c.drawPath(p,paint);paint.pathEffect=null
     }
 
