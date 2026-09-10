@@ -105,7 +105,7 @@ class FlowCanvasView(context: Context) : View(context) {
         val a=document.elements.firstOrNull{it.id==con.fromId}?:return;val b=document.elements.firstOrNull{it.id==con.toId}?:return
         val pair=document.connections.filter{(it.fromId==con.fromId&&it.toId==con.toId)||(it.fromId==con.toId&&it.toId==con.fromId)}.sortedBy{it.id};val idx=pair.indexOfFirst{it.id==con.id}.coerceAtLeast(0)
         val auto=connectionEndpoints(a,b,idx,pair.size);val p1=if(con.fromSide==ConnectionSide.AUTO)auto.first else explicitEndpoint(a,con.fromSide);val p2=if(con.toSide==ConnectionSide.AUTO)auto.second else explicitEndpoint(b,con.toSide)
-        val path=if(con.routePoints.size>=2){val route=con.routePoints.map{PointF(it.x,it.y)}.toMutableList();route[0]=p1;route[route.lastIndex]=p2;buildRoutedPath(route)}else buildConnectionPath(p1,p2,con.bendX,con.bendY,idx)
+        val path=if(con.fromSide!=ConnectionSide.AUTO && con.toSide!=ConnectionSide.AUTO){buildDynamicRoutedPath(a,b,p1,p2,con.fromSide,con.toSide)}else buildConnectionPath(p1,p2,con.bendX,con.bendY,idx)
         paint.style=Paint.Style.STROKE;paint.strokeWidth=if(con.id==selectedConnectionId)7f else connectionWidth(con);paint.color=if(con.id==selectedConnectionId)0xff2563eb.toInt() else con.color
         paint.pathEffect=when(con.lineStyle){LineStyle.DASHED->DashPathEffect(floatArrayOf(18f,12f),0f);LineStyle.DOTTED->DashPathEffect(floatArrayOf(4f,10f),0f);else->null};c.drawPath(path,paint);paint.pathEffect=null
         if(con.arrowType==ArrowType.REPEATED)drawRepeatedArrows(c,path)else if(con.arrowType!=ArrowType.NONE)drawConnectionArrows(c,path,con.arrowType)
@@ -153,6 +153,62 @@ class FlowCanvasView(context: Context) : View(context) {
     private fun endpointSide(e:FlowElement,p:PointF):ConnectionSide{val dl=abs(p.x-e.x);val dr=abs(p.x-(e.x+e.width));val dt=abs(p.y-e.y);val db=abs(p.y-(e.y+e.height));return when(minOf(dl,dr,dt,db)){dt->ConnectionSide.TOP;dr->ConnectionSide.RIGHT;db->ConnectionSide.BOTTOM;else->ConnectionSide.LEFT}}
 
     private fun buildConnectionPath(p1:PointF,p2:PointF,bx:Float,by:Float,index:Int):Path{val p=Path();p.moveTo(p1.x,p1.y);if(bx!=0f||by!=0f)p.quadTo((p1.x+p2.x)/2f+bx,(p1.y+p2.y)/2f+by,p2.x,p2.y)else{val dx=p2.x-p1.x;val dy=p2.y-p1.y;if(abs(dy)>=abs(dx)){val mid=(p1.y+p2.y)/2f+if(index%2==0)0f else 18f;p.cubicTo(p1.x,mid,p2.x,mid,p2.x,p2.y)}else{val mid=(p1.x+p2.x)/2f+if(index%2==0)0f else 18f;p.cubicTo(mid,p1.y,mid,p2.y,p2.x,p2.y)}};return p}
+    private fun buildDynamicRoutedPath(
+        a:FlowElement,
+        b:FlowElement,
+        start:PointF,
+        end:PointF,
+        fromSide:ConnectionSide,
+        toSide:ConnectionSide
+    ):Path {
+        val sourceOut=offsetFromSide(start,fromSide,64f)
+        val targetOut=offsetFromSide(end,toSide,64f)
+        val obstacles=obstacleRects(a.id,b.id)+listOf(
+            expandedElementRect(a,48f),
+            expandedElementRect(b,48f)
+        )
+        // Recalculate the route from the CURRENT block geometry every time the
+        // canvas is drawn.  Stored routePoints are deliberately not used here: a
+        // moved block must never leave an old elbow pinned to the canvas.
+        val middle=visibilityRoute(sourceOut,targetOut,obstacles,0)
+        val raw=mutableListOf<PointF>()
+        raw+=start
+        raw+=sourceOut
+        raw.addAll(middle.drop(1).dropLast(1))
+        raw+=targetOut
+        raw+=end
+        val cleaned=mutableListOf<PointF>()
+        raw.forEach { if(cleaned.isEmpty() || hypot(it.x-cleaned.last().x,it.y-cleaned.last().y)>1f) cleaned+=it }
+        return buildSmoothRoutePath(cleaned)
+    }
+
+    private fun buildSmoothRoutePath(points:List<PointF>):Path {
+        val p=Path()
+        if(points.isEmpty()) return p
+        p.moveTo(points[0].x,points[0].y)
+        if(points.size==2){
+            p.lineTo(points[1].x,points[1].y)
+            return p
+        }
+        // Keep the automatically selected route, but turn every corner into a
+        // generous quadratic bend.  This remains one continuous Path rather than
+        // a collection of separately drawn line segments.
+        val radius=34f
+        for(i in 1 until points.lastIndex){
+            val prev=points[i-1]; val cur=points[i]; val next=points[i+1]
+            val inLen=hypot(cur.x-prev.x,cur.y-prev.y)
+            val outLen=hypot(next.x-cur.x,next.y-cur.y)
+            if(inLen<1f || outLen<1f){ p.lineTo(cur.x,cur.y); continue }
+            val r=min(radius,min(inLen,outLen)*.42f)
+            val before=PointF(cur.x+(prev.x-cur.x)*r/inLen,cur.y+(prev.y-cur.y)*r/inLen)
+            val after=PointF(cur.x+(next.x-cur.x)*r/outLen,cur.y+(next.y-cur.y)*r/outLen)
+            p.lineTo(before.x,before.y)
+            p.quadTo(cur.x,cur.y,after.x,after.y)
+        }
+        p.lineTo(points.last().x,points.last().y)
+        return p
+    }
+
     private fun buildRoutedPath(points:List<PointF>):Path{val p=Path();if(points.isEmpty())return p;if(points.size==1){p.moveTo(points[0].x,points[0].y);return p};val radius=28f;p.moveTo(points[0].x,points[0].y);for(i in 1 until points.lastIndex+1){val prev=points[i-1];val cur=points[i];val next=if(i<points.lastIndex)points[i+1]else null;if(next==null){p.lineTo(cur.x,cur.y);break};val inLen=hypot(cur.x-prev.x,cur.y-prev.y);val outLen=hypot(next.x-cur.x,next.y-cur.y);if(inLen<1f||outLen<1f){p.lineTo(cur.x,cur.y);continue};val r=min(radius,min(inLen,outLen)*.38f);val before=PointF(cur.x+(prev.x-cur.x)*r/inLen,cur.y+(prev.y-cur.y)*r/inLen);val after=PointF(cur.x+(next.x-cur.x)*r/outLen,cur.y+(next.y-cur.y)*r/outLen);p.lineTo(before.x,before.y);p.quadTo(cur.x,cur.y,after.x,after.y)};return p}
     private fun pathMidpoint(path:Path):PointF{val m=PathMeasure(path,false);if(m.length<=0f)return PointF();val pos=FloatArray(2);m.getPosTan(m.length/2f,pos,null);return PointF(pos[0],pos[1])}
     private fun drawConnectionArrows(c:Canvas,path:Path,type:ArrowType){val m=PathMeasure(path,false);if(m.length<=1f)return;val pos=FloatArray(2);val tan=FloatArray(2);fun sample(d:Float):Pair<PointF,PointF>{m.getPosTan(d.coerceIn(0f,m.length),pos,tan);return PointF(pos[0],pos[1]) to PointF(tan[0],tan[1])};val end=sample(m.length);val start=sample(min(20f,m.length));when(type){ArrowType.END->drawArrow(c,end.first.x-end.second.x*8f,end.first.y-end.second.y*8f,end.first.x,end.first.y,ArrowType.END);ArrowType.BOTH->{drawArrow(c,end.first.x-end.second.x*8f,end.first.y-end.second.y*8f,end.first.x,end.first.y,ArrowType.END);drawArrow(c,start.first.x+start.second.x*8f,start.first.y+start.second.y*8f,start.first.x,start.first.y,ArrowType.END)};ArrowType.CIRCLE->{paint.style=Paint.Style.STROKE;paint.strokeWidth=3f;c.drawCircle(end.first.x,end.first.y,7f,paint)};ArrowType.DIAMOND->drawArrow(c,end.first.x-end.second.x*8f,end.first.y-end.second.y*8f,end.first.x,end.first.y,ArrowType.DIAMOND);else->Unit}}
@@ -368,7 +424,7 @@ class FlowCanvasView(context: Context) : View(context) {
         return Handle.NONE
     }
     private fun world(x:Float,y:Float)=PointF((x-panX)/scale,(y-panY)/scale);private fun selectedElement()=document.elements.firstOrNull{it.id==selectedElementId};private fun hitElement(x:Float,y:Float)=document.elements.asReversed().firstOrNull{hitShape(it,x,y)};private fun hitShape(e:FlowElement,x:Float,y:Float):Boolean{val r=RectF(e.x,e.y,e.x+e.width,e.y+e.height);return when(e.shape){ShapeType.DIAMOND->abs(x-r.centerX())/r.width()+abs(y-r.centerY())/r.height()<=.5f;else->r.contains(x,y)}}
-    private fun hitConnection(x:Float,y:Float):FlowConnection?{val threshold=maxOf(22f,24f/scale);return document.connections.asReversed().firstOrNull{con->val a=document.elements.firstOrNull{it.id==con.fromId}?:return@firstOrNull false;val b=document.elements.firstOrNull{it.id==con.toId}?:return@firstOrNull false;val pair=document.connections.filter{(it.fromId==con.fromId&&it.toId==con.toId)||(it.fromId==con.toId&&it.toId==con.fromId)}.sortedBy{it.id};val idx=pair.indexOfFirst{it.id==con.id}.coerceAtLeast(0);val auto=connectionEndpoints(a,b,idx,pair.size);val p1=if(con.fromSide==ConnectionSide.AUTO)auto.first else explicitEndpoint(a,con.fromSide);val p2=if(con.toSide==ConnectionSide.AUTO)auto.second else explicitEndpoint(b,con.toSide);val path=if(con.routePoints.size>=2){val route=con.routePoints.map{PointF(it.x,it.y)}.toMutableList();route[0]=p1;route[route.lastIndex]=p2;buildRoutedPath(route)}else buildConnectionPath(p1,p2,con.bendX,con.bendY,idx);val m=PathMeasure(path,false);val pos=FloatArray(2);var d=0f;while(d<=m.length){if(m.getPosTan(d,pos,null)&&hypot(x-pos[0],y-pos[1])<=threshold)return@firstOrNull true;d+=maxOf(6f,threshold/2f)};false}}
+    private fun hitConnection(x:Float,y:Float):FlowConnection?{val threshold=maxOf(22f,24f/scale);return document.connections.asReversed().firstOrNull{con->val a=document.elements.firstOrNull{it.id==con.fromId}?:return@firstOrNull false;val b=document.elements.firstOrNull{it.id==con.toId}?:return@firstOrNull false;val pair=document.connections.filter{(it.fromId==con.fromId&&it.toId==con.toId)||(it.fromId==con.toId&&it.toId==con.fromId)}.sortedBy{it.id};val idx=pair.indexOfFirst{it.id==con.id}.coerceAtLeast(0);val auto=connectionEndpoints(a,b,idx,pair.size);val p1=if(con.fromSide==ConnectionSide.AUTO)auto.first else explicitEndpoint(a,con.fromSide);val p2=if(con.toSide==ConnectionSide.AUTO)auto.second else explicitEndpoint(b,con.toSide);val path=if(con.fromSide!=ConnectionSide.AUTO && con.toSide!=ConnectionSide.AUTO){buildDynamicRoutedPath(a,b,p1,p2,con.fromSide,con.toSide)}else buildConnectionPath(p1,p2,con.bendX,con.bendY,idx);val m=PathMeasure(path,false);val pos=FloatArray(2);var d=0f;while(d<=m.length){if(m.getPosTan(d,pos,null)&&hypot(x-pos[0],y-pos[1])<=threshold)return@firstOrNull true;d+=maxOf(6f,threshold/2f)};false}}
     private fun wrap(s:String,max:Int):List<String>{if(s.isBlank())return listOf("");val out=mutableListOf<String>();var rest=s;while(rest.length>max){val cut=rest.substring(0,max).lastIndexOf(' ').let{if(it>0)it else max};out+=rest.substring(0,cut);rest=rest.substring(cut).trimStart()};out+=rest;return out}
     fun resetViewport(){scale=1f;panX=0f;panY=0f;invalidate()}
     fun fitContent(){if(document.elements.isEmpty()){resetViewport();return};val minX=document.elements.minOf{it.x};val minY=document.elements.minOf{it.y};val maxX=document.elements.maxOf{it.x+it.width};val maxY=document.elements.maxOf{it.y+it.height};val pad=80f;val sx=width/(maxX-minX+pad*2);val sy=height/(maxY-minY+pad*2);scale=min(sx,sy).coerceIn(.25f,5f);panX=width/2f-(minX+(maxX-minX)/2f)*scale;panY=height/2f-(minY+(maxY-minY)/2f)*scale;invalidate()}

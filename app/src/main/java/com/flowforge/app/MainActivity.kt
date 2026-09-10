@@ -323,7 +323,7 @@ class MainActivity : Activity() {
             toId=toId,
             fromSide=fromSide,
             toSide=toSide,
-            routePoints=route.map{ConnectionPoint(it.x,it.y)}.toMutableList()
+            routePoints=mutableListOf()
         )
         doc.connections+=c
         canvas.selectedConnectionId=c.id;canvas.selectedElementId=null;history.record(before,doc.deepCopy());canvas.cancelConnectionMode();canvas.invalidate();updateUi()
