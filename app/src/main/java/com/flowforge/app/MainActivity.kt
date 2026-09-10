@@ -582,7 +582,7 @@ class MainActivity : Activity() {
         val list=assets.all()
         if(list.isEmpty()){dialogBuilder().setTitle("Building Blocks").setMessage("No saved building blocks yet. Select a block and use Save Block.").setPositiveButton("OK",null).show();return}
         val names=list.map{it.name}
-        showCompactPopup(addButton ?: canvas,"Building Blocks",names){which->insertAsset(list[which])}
+        showCompactPopup(addButton ?: canvas,"Building Blocks",names,{ which -> insertAsset(list[which]) })
     }
     private fun manageAssets(){val list=assets.all();if(list.isEmpty()){toast("No building blocks");return};val names=list.map{"${it.name} — ${shapeName(it.element.shape)}"}.toTypedArray();dialogBuilder().setTitle("Manage Building Blocks").setItems(names){_,which->dialogBuilder().setTitle(list[which].name).setItems(arrayOf("Insert","Delete")){_,a->if(a==0)insertAsset(list[which])else{assets.delete(list[which].id);toast("Deleted")}}.show()}.setPositiveButton("Done",null).show()}
     private fun insertAsset(a:ElementAsset){val before=doc.deepCopy();val e=a.element.copy(id=java.util.UUID.randomUUID().toString(),x=300f,y=220f);doc.elements+=e;canvas.selectedElementId=e.id;canvas.selectedConnectionId=null;history.record(before,doc.deepCopy());documentDirty=true;canvas.invalidate();updateUi()}
@@ -590,7 +590,7 @@ class MainActivity : Activity() {
     private fun templates(){
         val built=Templates.all()
         val names=built.map{"From Template • ${it.first}"}
-        showCompactPopup(addButton ?: canvas,"Templates",names){which->chooseTemplate(built[which].second())}
+        showCompactPopup(addButton ?: canvas,"Templates",names,{ which -> chooseTemplate(built[which].second()) })
     }
 
     private fun chooseTemplate(template:FlowDocument){

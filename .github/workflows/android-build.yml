@@ -1,4 +1,4 @@
-name: Build FlowForge v0.1.2-41
+name: Build FlowForge v0.1.2-42
 
 on:
   push:

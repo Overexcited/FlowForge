@@ -113,7 +113,42 @@ class FlowCanvasView(context: Context) : View(context) {
     }
     private fun preferredSide(a:FlowElement,b:FlowElement):ConnectionSide{val dx=b.x+b.width/2f-(a.x+a.width/2f);val dy=b.y+b.height/2f-(a.y+a.height/2f);return if(abs(dy)>=abs(dx)){if(dy>=0)ConnectionSide.BOTTOM else ConnectionSide.TOP}else{if(dx>=0)ConnectionSide.RIGHT else ConnectionSide.LEFT}}
     private fun distributedSide(preferred:ConnectionSide,index:Int):ConnectionSide{if(preferred==ConnectionSide.AUTO)return ConnectionSide.AUTO;val order=when(preferred){ConnectionSide.TOP->arrayOf(ConnectionSide.TOP,ConnectionSide.RIGHT,ConnectionSide.LEFT,ConnectionSide.BOTTOM);ConnectionSide.RIGHT->arrayOf(ConnectionSide.RIGHT,ConnectionSide.BOTTOM,ConnectionSide.TOP,ConnectionSide.LEFT);ConnectionSide.BOTTOM->arrayOf(ConnectionSide.BOTTOM,ConnectionSide.LEFT,ConnectionSide.RIGHT,ConnectionSide.TOP);ConnectionSide.LEFT->arrayOf(ConnectionSide.LEFT,ConnectionSide.TOP,ConnectionSide.BOTTOM,ConnectionSide.RIGHT);else->arrayOf(ConnectionSide.TOP)};return order[index%order.size]}
-    private fun connectionEndpoints(a:FlowElement,b:FlowElement,index:Int,count:Int):Pair<PointF,PointF>{val pref=preferredSide(a,b);val sa=distributedSide(pref,index);val sb=when(sa){ConnectionSide.TOP->ConnectionSide.BOTTOM;ConnectionSide.RIGHT->ConnectionSide.LEFT;ConnectionSide.BOTTOM->ConnectionSide.TOP;ConnectionSide.LEFT->ConnectionSide.RIGHT;else->ConnectionSide.AUTO};fun point(e:FlowElement,s:ConnectionSide,o:Float)=when(s){ConnectionSide.TOP->PointF((e.x+e.width/2f+o).coerceIn(e.x+8f,e.x+e.width-8f),e.y);ConnectionSide.RIGHT->PointF(e.x+e.width,(e.y+e.height/2f+o).coerceIn(e.y+8f,e.y+e.height-8f));ConnectionSide.BOTTOM->PointF((e.x+e.width/2f+o).coerceIn(e.x+8f,e.x+e.width-8f),e.y+e.height);ConnectionSide.LEFT->PointF(e.x,(e.y+e.height/2f+o).coerceIn(e.y+8f,e.y+e.height-8f));else->PointF(e.x+e.width/2f,e.y+e.height/2f)};val lane=if(count<=1)0f else ((index-(count-1)/2f)*minOf(a.width,a.height)*.28f).coerceIn(-minOf(a.width,a.height)*.42f,minOf(a.width,a.height)*.42f);return point(a,sa,lane) to point(b,sb,lane)}
+    private fun connectionEndpoints(a: FlowElement, b: FlowElement, index: Int, count: Int): Pair<PointF, PointF> {
+        val pref = preferredSide(a, b)
+        val sa = distributedSide(pref, index)
+        val sb = when (sa) {
+            ConnectionSide.TOP -> ConnectionSide.BOTTOM
+            ConnectionSide.RIGHT -> ConnectionSide.LEFT
+            ConnectionSide.BOTTOM -> ConnectionSide.TOP
+            ConnectionSide.LEFT -> ConnectionSide.RIGHT
+            else -> ConnectionSide.AUTO
+        }
+        fun point(e: FlowElement, side: ConnectionSide, offset: Float): PointF {
+            return when (side) {
+                ConnectionSide.TOP -> PointF(
+                    (e.x + e.width / 2f + offset).coerceIn(e.x + 8f, e.x + e.width - 8f), e.y
+                )
+                ConnectionSide.RIGHT -> PointF(
+                    e.x + e.width,
+                    (e.y + e.height / 2f + offset).coerceIn(e.y + 8f, e.y + e.height - 8f)
+                )
+                ConnectionSide.BOTTOM -> PointF(
+                    (e.x + e.width / 2f + offset).coerceIn(e.x + 8f, e.x + e.width - 8f),
+                    e.y + e.height
+                )
+                ConnectionSide.LEFT -> PointF(
+                    e.x,
+                    (e.y + e.height / 2f + offset).coerceIn(e.y + 8f, e.y + e.height - 8f)
+                )
+                else -> PointF(e.x + e.width / 2f, e.y + e.height / 2f)
+            }
+        }
+        val lane = if (count <= 1) 0f else {
+            ((index - (count - 1) / 2f) * minOf(a.width, a.height) * .28f)
+                .coerceIn(-minOf(a.width, a.height) * .42f, minOf(a.width, a.height) * .42f)
+        }
+        return point(a, sa, lane) to point(b, sb, lane)
+    }
     private fun explicitEndpoint(e:FlowElement,s:ConnectionSide)=when(s){ConnectionSide.TOP->PointF(e.x+e.width/2f,e.y);ConnectionSide.RIGHT->PointF(e.x+e.width,e.y+e.height/2f);ConnectionSide.BOTTOM->PointF(e.x+e.width/2f,e.y+e.height);ConnectionSide.LEFT->PointF(e.x,e.y+e.height/2f);else->PointF(e.x+e.width/2f,e.y+e.height/2f)}
     private fun endpointSide(e:FlowElement,p:PointF):ConnectionSide{val dl=abs(p.x-e.x);val dr=abs(p.x-(e.x+e.width));val dt=abs(p.y-e.y);val db=abs(p.y-(e.y+e.height));return when(minOf(dl,dr,dt,db)){dt->ConnectionSide.TOP;dr->ConnectionSide.RIGHT;db->ConnectionSide.BOTTOM;else->ConnectionSide.LEFT}}
 
@@ -143,7 +178,19 @@ class FlowCanvasView(context: Context) : View(context) {
         if(segmentClear(start,end,obs))return listOf(start,end)
         val cell=max(20f,min(32f,gridSize/1.5f));val margin=180f;val xs=mutableListOf(start.x,end.x);val ys=mutableListOf(start.y,end.y);obs.forEach{xs+=it.left;xs+=it.right;ys+=it.top;ys+=it.bottom}
         val minX=floor((xs.minOrNull()!!-margin)/cell)*cell;val maxX=ceil((xs.maxOrNull()!!+margin)/cell)*cell;val minY=floor((ys.minOrNull()!!-margin)/cell)*cell;val maxY=ceil((ys.maxOrNull()!!+margin)/cell)*cell
-        fun cp(k:Pair<Int,Int>)=PointF(minX+k.first*cell,minY+k.second*cell);fun key(p:PointF)=Pair(round((p.x-minX)/cell).toInt(),round((p.y-minY)/cell).toInt());val s=key(start);val g=key(end);val maxIx=round((maxX-minX)/cell).toInt();val maxIy=round((maxY-minY)/cell).toInt()
+        fun cp(k: Pair<Int, Int>): PointF {
+            return PointF(minX + k.first * cell, minY + k.second * cell)
+        }
+        fun key(p: PointF): Pair<Int, Int> {
+            return Pair(
+                round((p.x - minX) / cell).toInt(),
+                round((p.y - minY) / cell).toInt()
+            )
+        }
+        val s = key(start)
+        val g = key(end)
+        val maxIx = round((maxX - minX) / cell).toInt()
+        val maxIy = round((maxY - minY) / cell).toInt()
         fun blocked(k:Pair<Int,Int>):Boolean{if(k==s||k==g)return false;val p=cp(k);return obs.any{it.contains(p.x,p.y)}}
         val came=HashMap<Pair<Int,Int>,Pair<Int,Int>>();val gs=HashMap<Pair<Int,Int>,Float>();val fs=HashMap<Pair<Int,Int>,Float>();val open=java.util.PriorityQueue<Pair<Int,Int>>(compareBy{fs[it]?:Float.POSITIVE_INFINITY});gs[s]=0f;fs[s]=heuristic(s,g);open.add(s);val dirs=arrayOf(Pair(1,0),Pair(-1,0),Pair(0,1),Pair(0,-1));var found=false;var guard=0
         while(open.isNotEmpty()&&guard++<12000){val cur=open.poll();if(cur==g){found=true;break};for(d in dirs){val n=Pair(cur.first+d.first,cur.second+d.second);if(n.first<0||n.second<0||n.first>maxIx||n.second>maxIy||blocked(n))continue;val prev=came[cur];val bend=if(prev!=null&&prev.first!=cur.first&&prev.second!=cur.second)5f else 0f;val tentative=(gs[cur]?:Float.POSITIVE_INFINITY)+1f+bend;if(tentative<(gs[n]?:Float.POSITIVE_INFINITY)){came[n]=cur;gs[n]=tentative;fs[n]=tentative+heuristic(n,g);open.add(n)}}}
@@ -169,7 +216,22 @@ class FlowCanvasView(context: Context) : View(context) {
 
     private fun resize(e:FlowElement,x:Float,y:Float){var l=e.x;var t=e.y;var r=e.x+e.width;var b=e.y+e.height;val minW=70f;val minH=45f;when(resizeHandle){Handle.TL->{l=min(x,r-minW);t=min(y,b-minH)};Handle.T->{t=min(y,b-minH)};Handle.TR->{r=max(x,l+minW);t=min(y,b-minH)};Handle.L->{l=min(x,r-minW)};Handle.R->{r=max(x,l+minW)};Handle.BL->{l=min(x,r-minW);b=max(y,t+minH)};Handle.B->{b=max(y,t+minH)};Handle.BR->{r=max(x,l+minW);b=max(y,t+minH)};else->Unit};if(snapToGrid){l=round(l/gridSize)*gridSize;t=round(t/gridSize)*gridSize;r=round(r/gridSize)*gridSize;b=round(b/gridSize)*gridSize};e.x=l;e.y=t;e.width=r-l;e.height=b-t}
     private fun handlePoints(r:RectF)=listOf(PointF(r.left,r.top),PointF(r.centerX(),r.top),PointF(r.right,r.top),PointF(r.left,r.centerY()),PointF(r.right,r.centerY()),PointF(r.left,r.bottom),PointF(r.centerX(),r.bottom),PointF(r.right,r.bottom))
-    private fun handleAt(e:FlowElement,x:Float,y:Float):Handle{val r=RectF(e.x,e.y,e.x+e.width,e.y+e.height);val margin=maxOf(34f/scale,22f);fun near(px:Float,py:Float)=hypot(x-px,y-py)<=margin;if(near(r.left,r.top))return Handle.TL;if(near(r.right,r.top))return Handle.TR;if(near(r.left,r.bottom))return Handle.BL;if(near(r.right,r.bottom))return Handle.BR;if(abs(y-r.top)<=margin&&x>=r.left-margin&&x<=r.right+margin)return Handle.T;if(abs(y-r.bottom)<=margin&&x>=r.left-margin&&x<=r.right+margin)return Handle.B;if(abs(x-r.left)<=margin&&y>=r.top-margin&&y<=r.bottom+margin)return Handle.L;if(abs(x-r.right)<=margin&&y>=r.top-margin&&y<=r.bottom+margin)return Handle.R;return Handle.NONE}
+    private fun handleAt(e: FlowElement, x: Float, y: Float): Handle {
+        val r = RectF(e.x, e.y, e.x + e.width, e.y + e.height)
+        val margin = maxOf(34f / scale, 22f)
+        fun near(px: Float, py: Float): Boolean {
+            return hypot(x - px, y - py) <= margin
+        }
+        if (near(r.left, r.top)) return Handle.TL
+        if (near(r.right, r.top)) return Handle.TR
+        if (near(r.left, r.bottom)) return Handle.BL
+        if (near(r.right, r.bottom)) return Handle.BR
+        if (abs(y - r.top) <= margin && x >= r.left - margin && x <= r.right + margin) return Handle.T
+        if (abs(y - r.bottom) <= margin && x >= r.left - margin && x <= r.right + margin) return Handle.B
+        if (abs(x - r.left) <= margin && y >= r.top - margin && y <= r.bottom + margin) return Handle.L
+        if (abs(x - r.right) <= margin && y >= r.top - margin && y <= r.bottom + margin) return Handle.R
+        return Handle.NONE
+    }
     private fun world(x:Float,y:Float)=PointF((x-panX)/scale,(y-panY)/scale);private fun selectedElement()=document.elements.firstOrNull{it.id==selectedElementId};private fun hitElement(x:Float,y:Float)=document.elements.asReversed().firstOrNull{hitShape(it,x,y)};private fun hitShape(e:FlowElement,x:Float,y:Float):Boolean{val r=RectF(e.x,e.y,e.x+e.width,e.y+e.height);return when(e.shape){ShapeType.DIAMOND->abs(x-r.centerX())/r.width()+abs(y-r.centerY())/r.height()<=.5f;else->r.contains(x,y)}}
     private fun hitConnection(x:Float,y:Float):FlowConnection?{val threshold=maxOf(22f,24f/scale);return document.connections.asReversed().firstOrNull{con->val a=document.elements.firstOrNull{it.id==con.fromId}?:return@firstOrNull false;val b=document.elements.firstOrNull{it.id==con.toId}?:return@firstOrNull false;val pair=document.connections.filter{(it.fromId==con.fromId&&it.toId==con.toId)||(it.fromId==con.toId&&it.toId==con.fromId)}.sortedBy{it.id};val idx=pair.indexOfFirst{it.id==con.id}.coerceAtLeast(0);val auto=connectionEndpoints(a,b,idx,pair.size);val p1=if(con.fromSide==ConnectionSide.AUTO)auto.first else explicitEndpoint(a,con.fromSide);val p2=if(con.toSide==ConnectionSide.AUTO)auto.second else explicitEndpoint(b,con.toSide);val path=if(con.routePoints.size>=2){val route=con.routePoints.map{PointF(it.x,it.y)}.toMutableList();route[0]=p1;route[route.lastIndex]=p2;buildRoutedPath(route)}else buildConnectionPath(p1,p2,con.bendX,con.bendY,idx);val m=PathMeasure(path,false);val pos=FloatArray(2);var d=0f;while(d<=m.length){if(m.getPosTan(d,pos,null)&&hypot(x-pos[0],y-pos[1])<=threshold)return@firstOrNull true;d+=maxOf(6f,threshold/2f)};false}}
     private fun wrap(s:String,max:Int):List<String>{if(s.isBlank())return listOf("");val out=mutableListOf<String>();var rest=s;while(rest.length>max){val cut=rest.substring(0,max).lastIndexOf(' ').let{if(it>0)it else max};out+=rest.substring(0,cut);rest=rest.substring(cut).trimStart()};out+=rest;return out}
