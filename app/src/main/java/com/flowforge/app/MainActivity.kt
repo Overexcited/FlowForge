@@ -427,6 +427,43 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun colorSpinnerAdapter(names: List<String>, colors: List<Int?>, dark: Boolean): ArrayAdapter<String> =
+        object : ArrayAdapter<String>(this, android.R.layout.simple_spinner_item, names) {
+            private fun row(position: Int, dropdown: Boolean): View {
+                val row = LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setBackgroundColor(if (dark) 0xff1e293b.toInt() else Color.WHITE)
+                    setPadding(dp(if (dropdown) 14 else 10), dp(if (dropdown) 8 else 6), dp(if (dropdown) 14 else 10), dp(if (dropdown) 8 else 6))
+                }
+                val label = TextView(this@MainActivity).apply {
+                    text = names[position]
+                    textSize = 16f
+                    gravity = Gravity.CENTER_VERTICAL
+                    setTextColor(if (dark) Color.WHITE else 0xff172033.toInt())
+                    includeFontPadding = false
+                    setSingleLine(true)
+                }
+                row.addView(label, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+                val swatch = View(this@MainActivity).apply {
+                    val color = colors[position]
+                    background = GradientDrawable().apply {
+                        shape = GradientDrawable.OVAL
+                        setColor(color ?: Color.TRANSPARENT)
+                        setStroke(dp(1), if (color == null) (if (dark) 0xff94a3b8.toInt() else 0xff64748b.toInt()) else color)
+                    }
+                }
+                val size = dp(18)
+                val lp = LinearLayout.LayoutParams(size, size)
+                lp.gravity = Gravity.CENTER_VERTICAL
+                lp.marginStart = dp(8)
+                row.addView(swatch, lp)
+                return row
+            }
+            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View = row(position, false)
+            override fun getDropDownView(position: Int, convertView: View?, parent: ViewGroup): View = row(position, true)
+        }
+
     private fun fillColors():LinkedHashMap<String,Int?> = linkedMapOf(
         "No fill" to null, "Black" to Color.BLACK, "White" to Color.WHITE,
         "Red" to 0xffdc2626.toInt(), "Orange" to 0xffea580c.toInt(), "Yellow" to 0xffca8a04.toInt(),
@@ -437,10 +474,7 @@ class MainActivity : Activity() {
     private fun fillColorSpinner(current:Int?):Spinner {
         val colors=fillColors(); val names=colors.keys.toList(); val dark=canvas.darkMode
         return Spinner(this).apply{
-            adapter=object:ArrayAdapter<String>(this@MainActivity,android.R.layout.simple_spinner_item,names){
-                override fun getView(position:Int,convertView:View?,parent:ViewGroup):View{return super.getView(position,convertView,parent).apply{setBackgroundColor(if(dark)0xff1e293b.toInt() else Color.WHITE);(this as? TextView)?.apply{setTextColor(if(dark)Color.WHITE else 0xff172033.toInt());setPadding(dp(10),dp(8),dp(10),dp(8))}}}
-                override fun getDropDownView(position:Int,convertView:View?,parent:ViewGroup):View{return super.getDropDownView(position,convertView,parent).apply{setBackgroundColor(if(dark)0xff1e293b.toInt() else Color.WHITE);(this as? TextView)?.apply{setTextColor(if(dark)Color.WHITE else 0xff172033.toInt());setPadding(dp(14),dp(10),dp(14),dp(10))}}}
-            }
+            adapter=colorSpinnerAdapter(names,colors.values.toList(),dark)
             val idx=colors.values.indexOf(current);setSelection(if(idx>=0)idx else 0);setBackgroundColor(if(dark)0xff1e293b.toInt() else 0xfff1f5f9.toInt())
         }
     }
@@ -454,11 +488,9 @@ class MainActivity : Activity() {
 
     private fun outlineColorSpinner(current:Int?): Spinner {
         val colors=outlineColors(); val names=colors.keys.toList(); val dark=canvas.darkMode
+        val displayColors=colors.values.map{it?:if(dark)0xff94a3b8.toInt() else 0xff334155.toInt()}
         return Spinner(this).apply{
-            adapter=object: ArrayAdapter<String>(this@MainActivity,android.R.layout.simple_spinner_item,names){
-                override fun getView(position:Int,convertView:View?,parent:ViewGroup):View{return super.getView(position,convertView,parent).apply{setBackgroundColor(if(dark)0xff1e293b.toInt() else Color.WHITE);(this as? TextView)?.apply{setTextColor(if(dark)Color.WHITE else 0xff172033.toInt());setPadding(dp(10),dp(8),dp(10),dp(8))}}}
-                override fun getDropDownView(position:Int,convertView:View?,parent:ViewGroup):View{return super.getDropDownView(position,convertView,parent).apply{setBackgroundColor(if(dark)0xff1e293b.toInt() else Color.WHITE);(this as? TextView)?.apply{setTextColor(if(dark)Color.WHITE else 0xff172033.toInt());setPadding(dp(14),dp(10),dp(14),dp(10))}}}
-            }
+            adapter=colorSpinnerAdapter(names,displayColors,dark)
             val idx=colors.values.indexOf(current);setSelection(if(idx>=0)idx else 0);setBackgroundColor(if(dark)0xff1e293b.toInt() else 0xfff1f5f9.toInt())
         }
     }
@@ -472,11 +504,9 @@ class MainActivity : Activity() {
 
     private fun labelColorSpinner(current:Int?): Spinner {
         val colors=labelColors(); val names=colors.keys.toList(); val dark=canvas.darkMode
+        val displayColors=colors.values.map{it?:if(dark)Color.WHITE else 0xff172033.toInt()}
         return Spinner(this).apply{
-            adapter=object: ArrayAdapter<String>(this@MainActivity,android.R.layout.simple_spinner_item,names){
-                override fun getView(position:Int,convertView:View?,parent:ViewGroup):View{return super.getView(position,convertView,parent).apply{setBackgroundColor(if(dark)0xff1e293b.toInt() else Color.WHITE);(this as? TextView)?.apply{setTextColor(if(dark)Color.WHITE else 0xff172033.toInt());setPadding(dp(10),dp(8),dp(10),dp(8))}}}
-                override fun getDropDownView(position:Int,convertView:View?,parent:ViewGroup):View{return super.getDropDownView(position,convertView,parent).apply{setBackgroundColor(if(dark)0xff1e293b.toInt() else Color.WHITE);(this as? TextView)?.apply{setTextColor(if(dark)Color.WHITE else 0xff172033.toInt());setPadding(dp(14),dp(10),dp(14),dp(10))}}}
-            }
+            adapter=colorSpinnerAdapter(names,displayColors,dark)
             val idx=colors.values.indexOf(current);setSelection(if(idx>=0)idx else 0);setBackgroundColor(if(dark)0xff1e293b.toInt() else 0xfff1f5f9.toInt())
         }
     }
@@ -493,26 +523,7 @@ class MainActivity : Activity() {
         val names=colors.keys.toList()
         val dark=canvas.darkMode
         return Spinner(this).apply{
-            adapter=object: ArrayAdapter<String>(this@MainActivity,android.R.layout.simple_spinner_item,names){
-                override fun getView(position:Int,convertView:View?,parent:ViewGroup):View{
-                    return super.getView(position,convertView,parent).apply{
-                        setBackgroundColor(if(dark)0xff1e293b.toInt() else Color.WHITE)
-                        (this as? TextView)?.apply{
-                            setTextColor(if(dark)Color.WHITE else 0xff172033.toInt())
-                            setPadding(dp(10),dp(8),dp(10),dp(8))
-                        }
-                    }
-                }
-                override fun getDropDownView(position:Int,convertView:View?,parent:ViewGroup):View{
-                    return super.getDropDownView(position,convertView,parent).apply{
-                        setBackgroundColor(if(dark)0xff1e293b.toInt() else Color.WHITE)
-                        (this as? TextView)?.apply{
-                            setTextColor(if(dark)Color.WHITE else 0xff172033.toInt())
-                            setPadding(dp(14),dp(10),dp(14),dp(10))
-                        }
-                    }
-                }
-            }
+            adapter=colorSpinnerAdapter(names,colors.values.toList(),dark)
             setSelection(colors.values.indexOf(current).takeIf{it>=0} ?: 0)
             setBackgroundColor(if(dark)0xff1e293b.toInt() else 0xfff1f5f9.toInt())
         }
@@ -594,8 +605,9 @@ class MainActivity : Activity() {
 
     private fun showConnectionColorPicker(c:FlowConnection){
         val colors=connectionColors()
-        val names=colors.keys.toTypedArray()
-        dialogBuilder().setTitle("Connection colour").setItems(names){_,which->
+        val names=colors.keys.toList()
+        val adapter=colorSpinnerAdapter(names,colors.values.toList(),canvas.darkMode)
+        dialogBuilder().setTitle("Connection colour").setAdapter(adapter){_,which->
             val before=doc.deepCopy();c.color=colors[names[which]]!!;history.record(before,doc.deepCopy());documentDirty=true;canvas.invalidate();updateUi()
         }.show()
     }
