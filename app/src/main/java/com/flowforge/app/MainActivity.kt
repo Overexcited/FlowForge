@@ -72,8 +72,8 @@ class MainActivity : Activity() {
         top.addView(iconButton("↶", "Undo") { undo() }.also { undoButton = it })
         top.addView(iconButton("↷", "Redo") { redo() }.also { redoButton = it })
         top.addView(iconButton("＋", "Add") { addElement() })
-        top.addView(iconButton("✎", "Draw link") { canvas.beginConnectionMode() })
-        top.addView(iconButton("⋮", "More") { moreMenu() })
+        top.addView(iconButton("⇩", "Import") { importMenu() })
+        top.addView(iconButton("⇧", "Export") { exportMenu() })
         root.addView(top, LinearLayout.LayoutParams(-1, dp(62)))
 
         status = TextView(this).apply {
@@ -174,13 +174,8 @@ class MainActivity : Activity() {
 
     private fun mainMenu(){
         AlertDialog.Builder(this).setTitle("FlowForge")
-            .setItems(arrayOf("New diagram","Add element","Building blocks","Templates","Import","Export","Settings")){_,which->when(which){0->newDocument();1->addElement();2->assetPicker();3->templates();4->importMenu();5->exportMenu();6->settings()}}.show()
+            .setItems(arrayOf("New diagram","Add element","Building blocks","Templates","Fit diagram","Reset zoom / position","Import","Export","Settings")){_,which->when(which){0->newDocument();1->addElement();2->assetPicker();3->templates();4->canvas.fitContent();5->canvas.resetViewport();6->importMenu();7->exportMenu();8->settings()}}.show()
     }
-    private fun moreMenu(){
-        AlertDialog.Builder(this).setTitle("More")
-            .setItems(arrayOf("Fit diagram","Reset zoom / position","Building blocks","Templates","Export","Import","Settings")){_,which->when(which){0->canvas.fitContent();1->canvas.resetViewport();2->assetPicker();3->templates();4->exportMenu();5->importMenu();6->settings()}}.show()
-    }
-
     private fun replaceDocument(newDoc: FlowDocument, record:Boolean=true) { if(record)history.record(doc.deepCopy(),newDoc.deepCopy());doc=newDoc;canvas.document=doc;canvas.selectedElementId=null;canvas.selectedConnectionId=null;updateUi() }
     private fun newDocument(){replaceDocument(FlowDocument())}
 

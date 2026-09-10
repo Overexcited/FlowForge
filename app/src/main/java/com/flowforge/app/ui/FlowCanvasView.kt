@@ -122,6 +122,9 @@ class FlowCanvasView(context: Context) : View(context) {
         c.drawRect(r,paint)
         val hs=10f
         handlePoints(r).forEach { p -> paint.style=Paint.Style.FILL; paint.color=Color.WHITE; c.drawCircle(p.x,p.y,hs,paint); paint.style=Paint.Style.STROKE; paint.color=0xff2563eb.toInt(); paint.strokeWidth=3f; c.drawCircle(p.x,p.y,hs,paint) }
+        val button=RectF(r.right+10f,r.top-46f,r.right+54f,r.top-2f); lastActionButton=button
+        paint.style=Paint.Style.FILL; paint.color=0xff2563eb.toInt(); c.drawRoundRect(button,12f,12f,paint)
+        textPaint.color=Color.WHITE; textPaint.textSize=25f; c.drawText("⋮",button.centerX()-5f,button.centerY()+9f,textPaint)
         if(e.notes.isNotBlank()){ lastNotesButton=RectF(r.right-30f,r.top-30f,r.right+2f,r.top+2f) } else lastNotesButton.setEmpty()
     }
 
@@ -233,9 +236,17 @@ class FlowCanvasView(context: Context) : View(context) {
                 }
                 val selected=selectedElement()
                 if(selected!=null){
-                    if(!lastNotesButton.isEmpty && lastNotesButton.contains(w.x,w.y)){onNotesTap?.invoke(selected);return true}
+                    // Check resize handles before the notes badge. The top-right handle and
+                    // notes badge can occupy nearby screen space, and the handles must win.
                     val h=handleAt(selected,w.x,w.y)
-                    if(h!=Handle.NONE){resizeId=selected.id;resizeHandle=h;startResize=RectF(selected.x,selected.y,selected.x+selected.width,selected.y+selected.height);return true}
+                    if(h!=Handle.NONE){
+                        resizeId=selected.id
+                        resizeHandle=h
+                        dragId=null
+                        startResize=RectF(selected.x,selected.y,selected.x+selected.width,selected.y+selected.height)
+                        return true
+                    }
+                    if(!lastNotesButton.isEmpty && lastNotesButton.contains(w.x,w.y)){onNotesTap?.invoke(selected);return true}
                 }
                 val hit=hitElement(w.x,w.y)
                 if(hit!=null){selectedElementId=hit.id;selectedConnectionId=null;dragId=hit.id;dragOffsetX=w.x-hit.x;dragOffsetY=w.y-hit.y;startMoveX=hit.x;startMoveY=hit.y
@@ -276,7 +287,17 @@ class FlowCanvasView(context: Context) : View(context) {
     }
 
     private fun handlePoints(r:RectF)=listOf(PointF(r.left,r.top),PointF(r.centerX(),r.top),PointF(r.right,r.top),PointF(r.left,r.centerY()),PointF(r.right,r.centerY()),PointF(r.left,r.bottom),PointF(r.centerX(),r.bottom),PointF(r.right,r.bottom))
-    private fun handleAt(e:FlowElement,x:Float,y:Float):Handle{val r=RectF(e.x,e.y,e.x+e.width,e.y+e.height);val pts=handlePoints(r);val names=Handle.values().drop(1);val hit=pts.indexOfFirst{hypot(x-it.x,y-it.y)<=18f};return if(hit>=0)names[hit] else Handle.NONE}
+    private fun handleAt(e:FlowElement,x:Float,y:Float):Handle{
+        val r=RectF(e.x,e.y,e.x+e.width,e.y+e.height)
+        val pts=handlePoints(r)
+        val names=Handle.values().drop(1)
+        // Keep the handles comfortably touchable at every zoom level. The visible
+        // handle is 10 world units in radius; use a larger hit target and scale it
+        // with zoom so it does not become a frustratingly small target when zoomed out.
+        val hitRadius=(30f/scale).coerceAtLeast(18f)
+        val hit=pts.indexOfFirst{hypot(x-it.x,y-it.y)<=hitRadius}
+        return if(hit>=0)names[hit] else Handle.NONE
+    }
     private fun world(x:Float,y:Float)=PointF((x-panX)/scale,(y-panY)/scale)
     private fun selectedElement()=document.elements.firstOrNull{it.id==selectedElementId}
     private fun hitElement(x:Float,y:Float)=document.elements.asReversed().firstOrNull{hitShape(it,x,y)}
