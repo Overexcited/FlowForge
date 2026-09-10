@@ -1,5 +1,7 @@
 name: Build FlowForge V0.1.2
 
+run-name: Build FlowForge V0.1.2-${{ github.run_number }}
+
 on:
   push:
   pull_request:
@@ -8,28 +10,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      actions: write
       contents: read
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set workflow run name from app version
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          VERSION=$(sed -n 's/.*versionName = "\([^"\]*\)".*/\1/p' app/build.gradle.kts | head -n 1)
-          if [ -z "$VERSION" ]; then
-            echo "Could not read versionName from app/build.gradle.kts" >&2
-            exit 1
-          fi
-          RUN_NAME="Build FlowForge V${VERSION}-${GITHUB_RUN_NUMBER}"
-          curl --fail-with-body -L \
-            -X PATCH \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
-            -d "{\"name\":\"${RUN_NAME}\"}"
 
       - uses: actions/setup-java@v4
         with:
