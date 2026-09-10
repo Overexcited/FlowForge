@@ -264,7 +264,7 @@ class FlowCanvasView(context: Context) : View(context) {
             }
             MotionEvent.ACTION_UP->{
                 if(connectionMode&&connectionStartId!=null){
-                    val w=world(event.x,event.y); val target=hitElement(w.x,w.y); val source=connectionStartId
+                    val w=world(event.x,event.y); val target=hitElement(w.x,w.y); val source=connectionStartId ?: return true
                     if(target!=null&&target.id!=source){
                         val start=document.elements.firstOrNull{it.id==source}; if(start!=null){
                             val fromSide=endpointSide(start,connectionStartPoint); val toSide=endpointSide(target,w)
