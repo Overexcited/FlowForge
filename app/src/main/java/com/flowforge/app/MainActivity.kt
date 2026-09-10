@@ -426,13 +426,13 @@ class MainActivity : Activity() {
     private fun importJson(uri:Uri){
         val load={runCatching{contentResolver.openInputStream(uri)!!.bufferedReader().use{FlowDocument.fromJson(it.readText())}}}
         fun go(){load().onSuccess{history=HistoryManager(2000);doc=it;canvas.document=doc;canvas.selectedElementId=null;canvas.selectedConnectionId=null;documentName=queryDisplayName(uri) ?: "Imported canvas";documentUri=null;documentDirty=true;canvas.invalidate();updateUi()}.onFailure{toast("Could not import FlowForge JSON")}}
-        if(documentDirty)dialogBuilder().setTitle("Save changes?").setMessage("\\\"$documentName\\\" has unsaved changes. Save before importing?").setNegativeButton("Cancel",null).setNeutralButton("Don't Save"){_,_->go()}.setPositiveButton("Save"){_,_->saveCurrentThen(go)}.show() else go()
+        if(documentDirty)dialogBuilder().setTitle("Save changes?").setMessage("\\\"$documentName\\\" has unsaved changes. Save before importing?").setNegativeButton("Cancel",null).setNeutralButton("Don't Save"){_,_->go()}.setPositiveButton("Save"){_,_->saveCurrentThen { go() }}.show() else go()
     }
 
     private fun importMermaid(uri:Uri){
         val load={runCatching{contentResolver.openInputStream(uri)!!.bufferedReader().use{Mermaid.import(it.readText())}}}
         fun go(){load().onSuccess{history=HistoryManager(2000);doc=it;canvas.document=doc;canvas.selectedElementId=null;canvas.selectedConnectionId=null;documentName=queryDisplayName(uri) ?: "Imported Mermaid";documentUri=null;documentDirty=true;canvas.invalidate();updateUi()}.onFailure{toast("Could not import Mermaid")}}
-        if(documentDirty)dialogBuilder().setTitle("Save changes?").setMessage("\\\"$documentName\\\" has unsaved changes. Save before importing?").setNegativeButton("Cancel",null).setNeutralButton("Don't Save"){_,_->go()}.setPositiveButton("Save"){_,_->saveCurrentThen(go)}.show() else go()
+        if(documentDirty)dialogBuilder().setTitle("Save changes?").setMessage("\\\"$documentName\\\" has unsaved changes. Save before importing?").setNegativeButton("Cancel",null).setNeutralButton("Don't Save"){_,_->go()}.setPositiveButton("Save"){_,_->saveCurrentThen { go() }}.show() else go()
     }
 
     private fun exportPdf(uri:Uri){val old=canvas.gridVisible;canvas.gridVisible=prefs.getBoolean("exportGrid",false);val pdf=PdfDocument();val page=pdf.startPage(PdfDocument.PageInfo.Builder(1600,1000,1).create());drawDocument(page.canvas,1600f,1000f);pdf.finishPage(page);contentResolver.openOutputStream(uri)?.use{pdf.writeTo(it)};pdf.close();canvas.gridVisible=old;canvas.invalidate()}
