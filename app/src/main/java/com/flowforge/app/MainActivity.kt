@@ -425,13 +425,13 @@ class MainActivity : Activity() {
 
     private fun importJson(uri:Uri){
         val load={runCatching{contentResolver.openInputStream(uri)!!.bufferedReader().use{FlowDocument.fromJson(it.readText())}}}
-        val go={load().onSuccess{history=HistoryManager(2000);doc=it;canvas.document=doc;canvas.selectedElementId=null;canvas.selectedConnectionId=null;documentName=queryDisplayName(uri) ?: "Imported canvas";documentUri=null;documentDirty=true;canvas.invalidate();updateUi()}.onFailure{toast("Could not import FlowForge JSON")}}
+        fun go(){load().onSuccess{history=HistoryManager(2000);doc=it;canvas.document=doc;canvas.selectedElementId=null;canvas.selectedConnectionId=null;documentName=queryDisplayName(uri) ?: "Imported canvas";documentUri=null;documentDirty=true;canvas.invalidate();updateUi()}.onFailure{toast("Could not import FlowForge JSON")}}
         if(documentDirty)dialogBuilder().setTitle("Save changes?").setMessage("\\\"$documentName\\\" has unsaved changes. Save before importing?").setNegativeButton("Cancel",null).setNeutralButton("Don't Save"){_,_->go()}.setPositiveButton("Save"){_,_->saveCurrentThen(go)}.show() else go()
     }
 
     private fun importMermaid(uri:Uri){
         val load={runCatching{contentResolver.openInputStream(uri)!!.bufferedReader().use{Mermaid.import(it.readText())}}}
-        val go={load().onSuccess{history=HistoryManager(2000);doc=it;canvas.document=doc;canvas.selectedElementId=null;canvas.selectedConnectionId=null;documentName=queryDisplayName(uri) ?: "Imported Mermaid";documentUri=null;documentDirty=true;canvas.invalidate();updateUi()}.onFailure{toast("Could not import Mermaid")}}
+        fun go(){load().onSuccess{history=HistoryManager(2000);doc=it;canvas.document=doc;canvas.selectedElementId=null;canvas.selectedConnectionId=null;documentName=queryDisplayName(uri) ?: "Imported Mermaid";documentUri=null;documentDirty=true;canvas.invalidate();updateUi()}.onFailure{toast("Could not import Mermaid")}}
         if(documentDirty)dialogBuilder().setTitle("Save changes?").setMessage("\\\"$documentName\\\" has unsaved changes. Save before importing?").setNegativeButton("Cancel",null).setNeutralButton("Don't Save"){_,_->go()}.setPositiveButton("Save"){_,_->saveCurrentThen(go)}.show() else go()
     }
 
