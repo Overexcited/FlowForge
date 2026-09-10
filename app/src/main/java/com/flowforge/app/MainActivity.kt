@@ -25,6 +25,7 @@ class MainActivity : Activity() {
     private var doc = FlowDocument()
     private var status: TextView? = null
     private var contextBar: LinearLayout? = null
+    private var contextScroll: HorizontalScrollView? = null
     private var undoButton: Button? = null
     private var redoButton: Button? = null
     private var pendingText = ""
@@ -71,7 +72,6 @@ class MainActivity : Activity() {
         top.addView(iconButton("↶", "Undo") { undo() }.also { undoButton = it })
         top.addView(iconButton("↷", "Redo") { redo() }.also { redoButton = it })
         top.addView(iconButton("＋", "Add") { addElement() })
-        top.addView(iconButton("🔗", "Connect") { connectElementsFromSelectionOrPrompt() })
         top.addView(iconButton("✎", "Draw link") { canvas.beginConnectionMode() })
         top.addView(iconButton("⋮", "More") { moreMenu() })
         root.addView(top, LinearLayout.LayoutParams(-1, dp(62)))
@@ -86,16 +86,17 @@ class MainActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(8), dp(4), dp(8), dp(4)); setBackgroundColor(0xfff8fafc.toInt()); visibility = View.GONE
         }
-        root.addView(HorizontalScrollView(this).apply {
+        contextScroll = HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
+            visibility = View.GONE
             addView(contextBar)
-        }, LinearLayout.LayoutParams(-1, dp(58)))
+        }
+        root.addView(contextScroll, LinearLayout.LayoutParams(-1, dp(58)))
 
         canvas = FlowCanvasView(this)
         canvas.onSelectionChanged = { updateUi() }
         canvas.onDoubleTapElement = { showElementEditor(it) }
         canvas.onNotesTap = { showNotes(it) }
-        canvas.onElementAction = { elementActions(it) }
         canvas.onConnectionRequested = { from, to -> createConnection(from, to) }
         canvas.onConnectionCancelled = { updateUi() }
         canvas.onMoveFinished = { e, oldX, oldY ->
@@ -127,29 +128,48 @@ class MainActivity : Activity() {
         undoButton?.isEnabled=history.canUndo(); redoButton?.isEnabled=history.canRedo()
         val mode = if (canvas.connectionMode) " • Draw connection: tap/drag from one block to another" else ""
         status?.text="${doc.elements.size} elements  •  ${doc.connections.size} connections  •  ${if(canvas.snapToGrid)"Snap" else "Free"}$mode"
-        val bar=contextBar ?: return; bar.removeAllViews()
+        val bar=contextBar ?: return
+        val scroll=contextScroll ?: return
+        bar.removeAllViews()
         val e=canvas.selectedElementId?.let{id->doc.elements.firstOrNull{it.id==id}}
         val c=canvas.selectedConnectionId?.let{id->doc.connections.firstOrNull{it.id==id}}
         if(e!=null && !canvas.connectionMode){
-            bar.visibility=View.VISIBLE
+            bar.visibility=View.VISIBLE; scroll.visibility=View.VISIBLE
             bar.addView(TextView(this).apply{text="Selected: ${e.label.ifBlank{"Element"}}";textSize=12f;setPadding(4,0,dp(8),0)},LinearLayout.LayoutParams(0,WRAP_CONTENT,1f))
-            bar.addView(smallButton("Connect"){canvas.beginConnectionFrom(e.id)})
-            bar.addView(smallButton("✎ Draw"){canvas.beginConnectionFrom(e.id)})
-            bar.addView(smallButton("⋮ Actions"){elementActions(e)})
+            bar.addView(smallButton("✎ Draw"){canvas.beginConnectionMode()})
             bar.addView(smallButton("Clone"){cloneElement(e)})
             bar.addView(smallButton("Save Block"){saveAsset(e)})
             bar.addView(smallButton("Edit"){showElementEditor(e)})
+            bar.addView(smallButton("Reset"){resetElement(e)})
+            bar.addView(smallButton("Notes"){showNotes(e)})
             bar.addView(smallButton("Delete"){deleteSelected()})
         } else if(c!=null && !canvas.connectionMode){
-            bar.visibility=View.VISIBLE
+            bar.visibility=View.VISIBLE; scroll.visibility=View.VISIBLE
             bar.addView(TextView(this).apply{text="Selected connection";textSize=12f;setPadding(4,0,dp(8),0)},LinearLayout.LayoutParams(0,WRAP_CONTENT,1f))
+            bar.addView(smallButton("Reverse"){reverseConnection(c)})
+            bar.addView(smallButton("Style: ${lineStyleLabel(c.lineStyle)}"){cycleConnectionLineStyle(c)})
+            bar.addView(smallButton("Arrows: ${arrowLabel(c.arrowType)}"){cycleConnectionArrow(c)})
             bar.addView(smallButton("Edit"){showConnectionEditor(c)})
             bar.addView(smallButton("Delete"){deleteSelected()})
         } else if(canvas.connectionMode){
-            bar.visibility=View.VISIBLE
+            bar.visibility=View.VISIBLE; scroll.visibility=View.VISIBLE
             bar.addView(TextView(this).apply{text="Connection mode";textSize=12f;setPadding(4,0,dp(8),0)},LinearLayout.LayoutParams(0,WRAP_CONTENT,1f))
             bar.addView(smallButton("Cancel"){canvas.cancelConnectionMode()})
-        } else bar.visibility=View.GONE
+        } else {
+            bar.visibility=View.GONE; scroll.visibility=View.GONE
+        }
+    }
+
+    private fun lineStyleLabel(style:LineStyle)=when(style){LineStyle.SOLID->"Solid";LineStyle.DASHED->"Dashed";LineStyle.DOTTED->"Dotted"}
+    private fun arrowLabel(type:ArrowType)=when(type){ArrowType.NONE->"None";ArrowType.END->"End";ArrowType.BOTH->"Both";ArrowType.CIRCLE->"Circle";ArrowType.DIAMOND->"Diamond";ArrowType.REPEATED->"Flow"}
+    private fun cycleConnectionLineStyle(c:FlowConnection){
+        val before=doc.deepCopy(); c.lineStyle=when(c.lineStyle){LineStyle.SOLID->LineStyle.DASHED;LineStyle.DASHED->LineStyle.DOTTED;LineStyle.DOTTED->LineStyle.SOLID}; history.record(before,doc.deepCopy());canvas.invalidate();updateUi()
+    }
+    private fun cycleConnectionArrow(c:FlowConnection){
+        val before=doc.deepCopy(); c.arrowType=when(c.arrowType){ArrowType.NONE->ArrowType.END;ArrowType.END->ArrowType.REPEATED;ArrowType.REPEATED->ArrowType.BOTH;ArrowType.BOTH->ArrowType.NONE;ArrowType.CIRCLE->ArrowType.DIAMOND;ArrowType.DIAMOND->ArrowType.NONE}; history.record(before,doc.deepCopy());canvas.invalidate();updateUi()
+    }
+    private fun reverseConnection(c:FlowConnection){
+        val before=doc.deepCopy(); val from=c.fromId;c.fromId=c.toId;c.toId=from;history.record(before,doc.deepCopy());canvas.invalidate();updateUi()
     }
 
     private fun mainMenu(){
@@ -171,14 +191,6 @@ class MainActivity : Activity() {
         }.show()
     }
 
-    private fun connectElementsFromSelectionOrPrompt(){
-        val selected=canvas.selectedElementId
-        if(selected!=null){canvas.beginConnectionFrom(selected);return}
-        if(doc.elements.size<2){toast("Add at least two elements");return}
-        val names=doc.elements.map{"${it.label.ifBlank{"Element"}}  (${it.id.take(4)})"}.toTypedArray()
-        AlertDialog.Builder(this).setTitle("Connect from").setItems(names){_,from->chooseTo(names,from)}.show()
-    }
-    private fun chooseTo(names:Array<String>,from:Int){AlertDialog.Builder(this).setTitle("Connect to").setItems(names){_,to->if(to==from)toast("Choose two different elements") else createConnection(doc.elements[from].id,doc.elements[to].id)}.show()}
     private fun createConnection(fromId:String,toId:String){
         if(fromId==toId)return
         val before=doc.deepCopy(); val c=FlowConnection(fromId=fromId,toId=toId);doc.connections+=c
@@ -220,7 +232,6 @@ class MainActivity : Activity() {
         AlertDialog.Builder(this).setTitle("Edit connection").setView(box).setPositiveButton("Save"){_,_->val before=doc.deepCopy();c.label=label.text.toString();c.notes=notes.text.toString();c.arrowType=ArrowType.values()[arrows.selectedItemPosition];c.lineStyle=LineStyle.values()[styles.selectedItemPosition];c.bendX=bx.text.toString().toFloatOrNull()?:0f;c.bendY=by.text.toString().toFloatOrNull()?:0f;history.record(before,doc.deepCopy());canvas.invalidate();updateUi()}.setNegativeButton("Cancel",null).show()
     }
 
-    private fun elementActions(e:FlowElement){val items=arrayOf("Clone","Save as Building Block","Connect to…","Edit","Reset to Default","View Notes","Delete");AlertDialog.Builder(this).setTitle(e.label.ifBlank{"Element"}).setItems(items){_,which->when(which){0->cloneElement(e);1->saveAsset(e);2->canvas.beginConnectionFrom(e.id);3->showElementEditor(e);4->resetElement(e);5->showNotes(e);6->deleteSelected()}}.show()}
     private fun cloneElement(e:FlowElement){val before=doc.deepCopy();val copy=e.copy(id=java.util.UUID.randomUUID().toString(),x=e.x+maxOf(canvas.gridSize,40f),y=e.y+maxOf(canvas.gridSize,40f));var tries=0;while(doc.elements.any{overlaps(it,copy)}&&tries<20){copy.x+=40f;copy.y+=40f;tries++};doc.elements+=copy;canvas.selectedElementId=copy.id;canvas.selectedConnectionId=null;history.record(before,doc.deepCopy());canvas.invalidate();updateUi()}
     private fun overlaps(a:FlowElement,b:FlowElement)=a.x<b.x+b.width&&a.x+a.width>b.x&&a.y<b.y+b.height&&a.y+a.height>b.y
 

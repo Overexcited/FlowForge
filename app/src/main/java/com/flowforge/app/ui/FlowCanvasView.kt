@@ -15,7 +15,6 @@ class FlowCanvasView(context: Context) : View(context) {
     var onSelectionChanged: (() -> Unit)? = null
     var onDoubleTapElement: ((FlowElement) -> Unit)? = null
     var onNotesTap: ((FlowElement) -> Unit)? = null
-    var onElementAction: ((FlowElement) -> Unit)? = null
     var onConnectionRequested: ((String, String) -> Unit)? = null
     var onConnectionCancelled: (() -> Unit)? = null
     var onMoveFinished: ((FlowElement, Float, Float) -> Unit)? = null
@@ -37,7 +36,7 @@ class FlowCanvasView(context: Context) : View(context) {
     private var dragId: String? = null; private var dragOffsetX = 0f; private var dragOffsetY = 0f
     private var startMoveX = 0f; private var startMoveY = 0f
     private var resizeId: String? = null; private var resizeHandle = Handle.NONE
-    private var startResize = RectF(); private var lastActionButton = RectF(); private var lastNotesButton = RectF()
+    private var startResize = RectF(); private var lastNotesButton = RectF()
     private var gestureMoved = false
 
     private enum class Handle { NONE, TL, T, TR, L, R, BL, B, BR }
@@ -144,7 +143,8 @@ class FlowCanvasView(context: Context) : View(context) {
         paint.pathEffect=when(con.lineStyle){LineStyle.DASHED->DashPathEffect(floatArrayOf(18f,12f),0f);LineStyle.DOTTED->DashPathEffect(floatArrayOf(4f,10f),0f);else->null}
         c.drawPath(path,paint);paint.pathEffect=null
         val tangent=pathTangent(p1,p2,con.bendX,con.bendY,pairIndex)
-        if(con.arrowType!=ArrowType.NONE) drawArrow(c,tangent.first.x,tangent.first.y,tangent.second.x,tangent.second.y,con.arrowType)
+        if(con.arrowType==ArrowType.REPEATED) drawRepeatedArrows(c,path)
+        else if(con.arrowType!=ArrowType.NONE) drawArrow(c,tangent.first.x,tangent.first.y,tangent.second.x,tangent.second.y,con.arrowType)
         val mid=connectionMidpoint(p1,p2,con.bendX,con.bendY,pairIndex)
         if(con.label.isNotBlank()){textPaint.color=if(darkMode)Color.WHITE else 0xff334155.toInt();textPaint.textSize=21f;c.drawText(con.label,mid.x+6,mid.y-6,textPaint)}
         if(con.notes.isNotBlank()) drawBadge(c,mid.x+12,mid.y-18,false)
@@ -209,6 +209,20 @@ class FlowCanvasView(context: Context) : View(context) {
         when(type){ArrowType.END->head(x2,y2,ang);ArrowType.BOTH->{head(x2,y2,ang);head(x1,y1,ang+PI.toFloat())};ArrowType.CIRCLE->{paint.style=Paint.Style.STROKE;paint.strokeWidth=3f;c.drawCircle(x2,y2,7f,paint)};ArrowType.DIAMOND->head(x2,y2,ang,true);else->Unit}
     }
 
+    private fun drawRepeatedArrows(c:Canvas,path:Path){
+        val measure=PathMeasure(path,false)
+        val length=measure.length
+        if(length<=1f)return
+        val pos=FloatArray(2); val tan=FloatArray(2)
+        var d=55f
+        while(d<length-12f){
+            if(measure.getPosTan(d,pos,tan)){
+                drawArrow(c,pos[0]-tan[0]*8f,pos[1]-tan[1]*8f,pos[0],pos[1],ArrowType.END)
+            }
+            d+=70f
+        }
+    }
+
     override fun onTouchEvent(event: MotionEvent): Boolean {
         scaleDetector.onTouchEvent(event)
         when(event.actionMasked){
@@ -222,7 +236,6 @@ class FlowCanvasView(context: Context) : View(context) {
                 }
                 val selected=selectedElement()
                 if(selected!=null){
-                    if(lastActionButton.contains(w.x,w.y)){onElementAction?.invoke(selected);return true}
                     if(!lastNotesButton.isEmpty && lastNotesButton.contains(w.x,w.y)){onNotesTap?.invoke(selected);return true}
                     val h=handleAt(selected,w.x,w.y)
                     if(h!=Handle.NONE){resizeId=selected.id;resizeHandle=h;startResize=RectF(selected.x,selected.y,selected.x+selected.width,selected.y+selected.height);return true}

@@ -6,7 +6,7 @@ import java.util.UUID
 
 enum class ElementType { PROCESS, DECISION, TERMINAL, DATA, SERVER, TEXT, NOTE }
 enum class ShapeType { RECTANGLE, ROUNDED, DIAMOND, OVAL, PARALLELOGRAM, CYLINDER, DOCUMENT, HEXAGON, CLOUD, CIRCLE }
-enum class ArrowType { NONE, END, BOTH, CIRCLE, DIAMOND }
+enum class ArrowType { NONE, END, BOTH, CIRCLE, DIAMOND, REPEATED }
 enum class LineStyle { SOLID, DASHED, DOTTED }
 
 fun defaultShapeFor(type: ElementType): ShapeType = when (type) {
