@@ -122,9 +122,6 @@ class FlowCanvasView(context: Context) : View(context) {
         c.drawRect(r,paint)
         val hs=10f
         handlePoints(r).forEach { p -> paint.style=Paint.Style.FILL; paint.color=Color.WHITE; c.drawCircle(p.x,p.y,hs,paint); paint.style=Paint.Style.STROKE; paint.color=0xff2563eb.toInt(); paint.strokeWidth=3f; c.drawCircle(p.x,p.y,hs,paint) }
-        val button=RectF(r.right+10f,r.top-46f,r.right+54f,r.top-2f); lastActionButton=button
-        paint.style=Paint.Style.FILL; paint.color=0xff2563eb.toInt(); c.drawRoundRect(button,12f,12f,paint)
-        textPaint.color=Color.WHITE; textPaint.textSize=25f; c.drawText("⋮",button.centerX()-5f,button.centerY()+9f,textPaint)
         if(e.notes.isNotBlank()){ lastNotesButton=RectF(r.right-30f,r.top-30f,r.right+2f,r.top+2f) } else lastNotesButton.setEmpty()
     }
 
