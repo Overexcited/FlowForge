@@ -144,7 +144,7 @@ class MainActivity : Activity() {
         // Size the button from its text instead of Android Button's built-in minimum width.
         // 32dp height gives roughly the same visual padding above/below as the 9dp
         // left/right padding used here.
-        setPadding(dp(5),0,dp(5),0)
+        setPadding(dp(9),0,dp(9),0)
         val dark=canvas.darkMode
         setTextColor(if(dark) Color.WHITE else 0xff172033.toInt())
         background=GradientDrawable().apply{
@@ -153,10 +153,10 @@ class MainActivity : Activity() {
             setStroke(dp(1),if(dark) 0xff475569.toInt() else 0xffcbd5e1.toInt())
         }
         setOnClickListener{action()}
-        // Share the available toolbar width evenly so the row fills the screen
-        // without overflowing. The small horizontal margins create a visible gap
-        // between buttons while the text itself remains compact.
-        layoutParams=LinearLayout.LayoutParams(0,dp(32),1f).apply{setMargins(dp(2),dp(1),dp(2),dp(1))}
+        layoutParams=LinearLayout.LayoutParams(WRAP_CONTENT,dp(32)).apply{setMargins(dp(4),dp(1),dp(4),dp(1))}
+        // Keep each button at its natural text width. Never squeeze or wrap labels.
+        // The toolbar's spacer fills any remaining screen width, while the horizontal
+        // margins provide a comfortable gap between the buttons.
     }
 
     private fun updateUi() {
