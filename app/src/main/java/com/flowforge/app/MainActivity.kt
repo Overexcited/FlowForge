@@ -57,8 +57,6 @@ class MainActivity : Activity() {
             v.setPadding(0, top, 0, bottom)
             insets
         }
-        root.requestApplyInsets()
-
         val top = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -110,6 +108,7 @@ class MainActivity : Activity() {
         }
         root.addView(canvas, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
+        root.requestApplyInsets()
         updateUi()
     }
 
@@ -184,6 +183,22 @@ class MainActivity : Activity() {
         if(fromId==toId)return
         val before=doc.deepCopy(); val c=FlowConnection(fromId=fromId,toId=toId);doc.connections+=c
         canvas.selectedConnectionId=c.id;canvas.selectedElementId=null;history.record(before,doc.deepCopy());canvas.cancelConnectionMode();canvas.invalidate();updateUi()
+    }
+
+    private fun deleteSelected(){
+        val before=doc.deepCopy()
+        val eid=canvas.selectedElementId
+        val cid=canvas.selectedConnectionId
+        if(eid!=null){
+            doc.elements.removeAll{it.id==eid}
+            doc.connections.removeAll{it.fromId==eid||it.toId==eid}
+        }
+        if(cid!=null) doc.connections.removeAll{it.id==cid}
+        if(before.toJson()!=doc.toJson()) history.record(before,doc.deepCopy())
+        canvas.selectedElementId=null
+        canvas.selectedConnectionId=null
+        canvas.invalidate()
+        updateUi()
     }
 
     private fun showElementEditor(e:FlowElement){
