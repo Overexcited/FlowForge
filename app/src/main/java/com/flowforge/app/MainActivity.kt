@@ -140,7 +140,7 @@ class MainActivity : Activity() {
     }
 
     private fun smallButton(label:String, action:()->Unit) = Button(this).apply {
-        text=label; textSize=12f; minHeight=0; minimumHeight=0; includeFontPadding=false; gravity=Gravity.CENTER; setPadding(dp(10),0,dp(10),0); isAllCaps=false
+        text=label; textSize=12f; minHeight=0; minimumHeight=0; includeFontPadding=false; gravity=Gravity.CENTER; setPadding(dp(4),0,dp(4),0); isAllCaps=false
         val dark=canvas.darkMode
         setTextColor(if(dark) Color.WHITE else 0xff172033.toInt())
         background=GradientDrawable().apply{
