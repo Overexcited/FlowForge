@@ -166,7 +166,6 @@ class MainActivity : Activity() {
         val c=canvas.selectedConnectionId?.let{id->doc.connections.firstOrNull{it.id==id}}
         if(e!=null && !canvas.connectionMode){
             bar.visibility=View.VISIBLE; scroll.visibility=View.VISIBLE
-            bar.addView(TextView(this).apply{text="Selected: ${e.label.ifBlank{"Element"}}";textSize=12f;setTextColor(if(canvas.darkMode)Color.WHITE else 0xff172033.toInt());setPadding(4,0,dp(8),0)},LinearLayout.LayoutParams(0,WRAP_CONTENT,1f))
             bar.addView(smallButton("Edit"){showElementEditor(e)})
             bar.addView(smallButton("✎ Draw"){canvas.beginConnectionMode()})
             bar.addView(smallButton("Clone"){cloneElement(e)})
@@ -175,7 +174,6 @@ class MainActivity : Activity() {
             bar.addView(smallButton("Save Block"){saveAsset(e)})
         } else if(c!=null && !canvas.connectionMode){
             bar.visibility=View.VISIBLE; scroll.visibility=View.VISIBLE
-            bar.addView(TextView(this).apply{text="Selected connection";textSize=12f;setTextColor(if(canvas.darkMode)Color.WHITE else 0xff172033.toInt());setPadding(4,0,dp(8),0)},LinearLayout.LayoutParams(0,WRAP_CONTENT,1f))
             bar.addView(smallButton("Reverse"){reverseConnection(c)})
             bar.addView(smallButton("Color"){showConnectionColorPicker(c)})
             bar.addView(smallButton("Style: ${lineStyleLabel(c.lineStyle)}"){cycleConnectionLineStyle(c)})
