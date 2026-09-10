@@ -112,7 +112,7 @@ class MainActivity : Activity() {
         canvas.onSelectionChanged = { updateUi() }
         canvas.onDoubleTapElement = { showElementEditor(it) }
         canvas.onNotesTap = { showNotes(it) }
-        canvas.onConnectionRequested = { from, to -> createConnection(from, to) }
+        canvas.onConnectionRequested = { from, to, fromSide, toSide, bendX, bendY -> createConnection(from, to, fromSide, toSide, bendX, bendY) }
         canvas.onConnectionCancelled = { updateUi() }
         canvas.onMoveFinished = { e, oldX, oldY ->
             val before=doc.deepCopy(); before.elements.firstOrNull{it.id==e.id}?.apply{x=oldX;y=oldY}
@@ -208,7 +208,7 @@ class MainActivity : Activity() {
         val before=doc.deepCopy(); c.arrowType=when(c.arrowType){ArrowType.NONE->ArrowType.END;ArrowType.END->ArrowType.REPEATED;ArrowType.REPEATED->ArrowType.BOTH;ArrowType.BOTH->ArrowType.NONE;ArrowType.CIRCLE->ArrowType.DIAMOND;ArrowType.DIAMOND->ArrowType.NONE}; history.record(before,doc.deepCopy());canvas.invalidate();updateUi()
     }
     private fun reverseConnection(c:FlowConnection){
-        val before=doc.deepCopy(); val from=c.fromId;c.fromId=c.toId;c.toId=from;history.record(before,doc.deepCopy());canvas.invalidate();updateUi()
+        val before=doc.deepCopy(); val from=c.fromId;c.fromId=c.toId;c.toId=from;val side=c.fromSide;c.fromSide=c.toSide;c.toSide=side;history.record(before,doc.deepCopy());canvas.invalidate();updateUi()
     }
 
     private fun mainMenu(){
@@ -306,9 +306,9 @@ class MainActivity : Activity() {
         canvas.invalidate(); updateUi()
     }
 
-    private fun createConnection(fromId:String,toId:String){
+    private fun createConnection(fromId:String,toId:String,fromSide:ConnectionSide=ConnectionSide.AUTO,toSide:ConnectionSide=ConnectionSide.AUTO,bendX:Float=0f,bendY:Float=0f){
         if(fromId==toId)return
-        val before=doc.deepCopy(); val c=FlowConnection(fromId=fromId,toId=toId);doc.connections+=c
+        val before=doc.deepCopy(); val c=FlowConnection(fromId=fromId,toId=toId,fromSide=fromSide,toSide=toSide,bendX=bendX,bendY=bendY);doc.connections+=c
         canvas.selectedConnectionId=c.id;canvas.selectedElementId=null;history.record(before,doc.deepCopy());canvas.cancelConnectionMode();canvas.invalidate();updateUi()
     }
 
@@ -676,7 +676,16 @@ class MainActivity : Activity() {
         prefs.edit().putString("recents",raw).apply()
     }
 
-    private fun importMenu(){dialogBuilder().setTitle("Import").setItems(arrayOf("FlowForge JSON","Mermaid")){_,w->openFile(if(w==0)arrayOf("application/json") else arrayOf("text/*"),if(w==0)IMPORT_JSON else OPEN_MERMAID)}.show()}
+    private fun importMenu(){
+        dialogBuilder().setTitle("Import").setItems(arrayOf("FlowForge JSON","Mermaid")){_,w->
+            val types=if(w==0)arrayOf("application/json") else arrayOf("text/*")
+            val request=if(w==0)IMPORT_JSON else OPEN_MERMAID
+            fun go(){openFile(types,request)}
+            if(documentDirty) dialogBuilder().setTitle("Save changes?").setMessage("\"$documentName\" has unsaved changes. Save before importing?")
+                .setNegativeButton("Cancel",null).setNeutralButton("Don't Save"){_,_->go()}.setPositiveButton("Save"){_,_->saveCurrentThen{go()}}.show()
+            else go()
+        }.show()
+    }
     private fun saveText(text:String,mime:String,name:String,request:Int){pendingText=text;startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply{type=mime;putExtra(Intent.EXTRA_TITLE,name)},request)}
     private fun createFile(mime:String,name:String,request:Int){startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply{type=mime;putExtra(Intent.EXTRA_TITLE,name)},request)}
     private fun openFile(types:Array<String>,request:Int){startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply{type=types.first();putExtra(Intent.EXTRA_MIME_TYPES,types);addCategory(Intent.CATEGORY_OPENABLE)},request)}

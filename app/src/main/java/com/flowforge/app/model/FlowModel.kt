@@ -9,6 +9,7 @@ enum class ShapeType { RECTANGLE, ROUNDED, DIAMOND, OVAL, PARALLELOGRAM, CYLINDE
 enum class ArrowType { NONE, END, BOTH, CIRCLE, DIAMOND, REPEATED }
 enum class LineStyle { SOLID, DASHED, DOTTED }
 enum class LineThickness { DEFAULT, MEDIUM, LARGE }
+enum class ConnectionSide { AUTO, TOP, RIGHT, BOTTOM, LEFT }
 
 fun defaultShapeFor(type: ElementType): ShapeType = when (type) {
     ElementType.DECISION -> ShapeType.DIAMOND
@@ -48,6 +49,8 @@ data class FlowConnection(
     var lineStyle: LineStyle = LineStyle.SOLID,
     var color: Int = 0xff475569.toInt(),
     var thickness: LineThickness = LineThickness.DEFAULT,
+    var fromSide: ConnectionSide = ConnectionSide.AUTO,
+    var toSide: ConnectionSide = ConnectionSide.AUTO,
     var bendX: Float = 0f,
     var bendY: Float = 0f,
     var notes: String = ""
@@ -63,7 +66,7 @@ data class FlowDocument(
     fun toJson(): String {
         val o = JSONObject()
         o.put("format", "flowforge")
-        o.put("version", 3)
+        o.put("version", 4)
         o.put("title", title)
         val es = JSONArray()
         elements.forEach { e ->
@@ -82,6 +85,7 @@ data class FlowDocument(
                 put("id", c.id); put("from", c.fromId); put("to", c.toId)
                 put("label", c.label); put("arrow", c.arrowType.name); put("style", c.lineStyle.name)
                 put("color", c.color); put("thickness", c.thickness.name)
+                put("fromSide", c.fromSide.name); put("toSide", c.toSide.name)
                 put("bendX", c.bendX); put("bendY", c.bendY); put("notes", c.notes)
             })
         }
@@ -119,6 +123,8 @@ data class FlowDocument(
                     lineStyle = runCatching { LineStyle.valueOf(c.optString("style")) }.getOrDefault(LineStyle.SOLID),
                     color = c.optInt("color", 0xff475569.toInt()),
                     thickness = runCatching { LineThickness.valueOf(c.optString("thickness")) }.getOrDefault(LineThickness.DEFAULT),
+                    fromSide = runCatching { ConnectionSide.valueOf(c.optString("fromSide")) }.getOrDefault(ConnectionSide.AUTO),
+                    toSide = runCatching { ConnectionSide.valueOf(c.optString("toSide")) }.getOrDefault(ConnectionSide.AUTO),
                     bendX = c.optDouble("bendX", 0.0).toFloat(), bendY = c.optDouble("bendY", 0.0).toFloat(),
                     notes = c.optString("notes", "")
                 )
