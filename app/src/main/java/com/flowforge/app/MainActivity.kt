@@ -227,15 +227,17 @@ class MainActivity : Activity() {
 
     private fun addMenu(){
         val anchor=addButton ?: return
-        showCompactPopup(anchor,"Add",listOf("New Canvas","New Block","Saved Block","From Template")){choice->when(choice){
-            0->newDocument()
-            1->addElement()
-            2->assetPicker()
-            3->templates()
-        }}
+        showCompactPopup(anchor,"Add",listOf("New Block","Saved Block","New Canvas","From Template"), { choice ->
+            when(choice){
+                0->addElement()
+                1->assetPicker()
+                2->newDocument()
+                3->templates()
+            }
+        }, separatorBefore=setOf(2))
     }
 
-    private fun showCompactPopup(anchor:View,title:String,items:List<String>,onChoice:(Int)->Unit){
+    private fun showCompactPopup(anchor:View,title:String,items:List<String>,onChoice:(Int)->Unit,separatorBefore:Set<Int> = emptySet()){
         val dark=canvas.darkMode
         lateinit var popup: PopupWindow
         val outer=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(8),dp(8),dp(8),dp(8));setBackgroundColor(if(dark)0xff111827.toInt() else Color.WHITE)}
@@ -243,6 +245,13 @@ class MainActivity : Activity() {
         val scroll=ScrollView(this).apply{isFillViewport=true}
         val listBox=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL}
         items.forEachIndexed{index,label->
+            if(index in separatorBefore){
+                listBox.addView(View(this).apply {
+                    setBackgroundColor(if(dark) 0xff475569.toInt() else 0xffcbd5e1.toInt())
+                }, LinearLayout.LayoutParams(dp(250),dp(1)).apply {
+                    setMargins(dp(15),dp(7),dp(15),dp(7))
+                })
+            }
             listBox.addView(TextView(this).apply{
                 text=label;textSize=16f;gravity=Gravity.CENTER_VERTICAL;setTextColor(if(dark)Color.WHITE else 0xff172033.toInt());setPadding(dp(14),0,dp(14),0)
                 background=GradientDrawable().apply{cornerRadius=dp(7).toFloat();setColor(if(dark)0xff1e293b.toInt() else 0xfff1f5f9.toInt());setStroke(dp(1),if(dark)0xff334155.toInt() else 0xffe2e8f0.toInt())}
@@ -348,6 +357,7 @@ class MainActivity : Activity() {
         val thicknessSpinner=thicknessSpinner(e.outlineThickness)
         val fillSpinner=fillColorSpinner(e.fillColor)
         val outlineSpinner=outlineColorSpinner(e.outlineColor)
+        val labelColorSpinner=labelColorSpinner(e.labelColor)
         fun sentence(value:String)=value.lowercase().replaceFirstChar{it.uppercase()}
         val spinner=Spinner(this).apply{
             adapter=object:ArrayAdapter<String>(this@MainActivity,android.R.layout.simple_spinner_item,shapes.map{sentence(shapeName(it))}){
@@ -356,6 +366,7 @@ class MainActivity : Activity() {
             };setSelection(shapes.indexOf(e.shape).coerceAtLeast(0));setBackgroundColor(if(dark)0xff1e293b.toInt() else 0xfff1f5f9.toInt())
         }
         box.addView(editorLabel("Label"));box.addView(label)
+        box.addView(editorLabel("Label Color"));box.addView(labelColorSpinner)
         box.addView(editorLabel("Shape"));box.addView(spinner)
         box.addView(editorLabel("Outline thickness"));box.addView(thicknessSpinner)
         box.addView(editorLabel("Outline Color"));box.addView(outlineSpinner)
@@ -365,13 +376,14 @@ class MainActivity : Activity() {
             val before=doc.deepCopy();e.label=label.text.toString();e.notes=notes.text.toString();e.shape=shapes[spinner.selectedItemPosition]
             e.outlineThickness=thicknesses[thicknessSpinner.selectedItemPosition]
             e.outlineColor=outlineColors().values.elementAt(outlineSpinner.selectedItemPosition)
+            e.labelColor=labelColors().values.elementAt(labelColorSpinner.selectedItemPosition)
             e.fillColor=fillColors().values.elementAt(fillSpinner.selectedItemPosition)
             history.record(before,doc.deepCopy());documentDirty=true;canvas.invalidate();updateUi()
         }.setNeutralButton("Reset default"){_,_->resetElement(e)}.setNegativeButton("Cancel",null).create()
         dialog.setOnShowListener{val textColor=if(dark)Color.WHITE else 0xff172033.toInt();dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(textColor);dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.setTextColor(textColor);dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.setTextColor(textColor);dialog.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(if(dark)0xff0f172a.toInt() else Color.WHITE))}
         dialog.show()
     }
-    private fun resetElement(e:FlowElement){val before=doc.deepCopy();e.shape=FlowElement.defaultShape(e.type);e.width=180f;e.height=90f;e.outlineThickness=LineThickness.DEFAULT;e.outlineColor=null;e.fillColor=null;history.record(before,doc.deepCopy());canvas.invalidate();updateUi()}
+    private fun resetElement(e:FlowElement){val before=doc.deepCopy();e.shape=FlowElement.defaultShape(e.type);e.width=180f;e.height=90f;e.outlineThickness=LineThickness.DEFAULT;e.outlineColor=null;e.fillColor=null;e.labelColor=null;history.record(before,doc.deepCopy());canvas.invalidate();updateUi()}
 
     private fun thicknessSpinner(current:LineThickness):Spinner {
         val names=listOf("Default","Medium","Large"); val dark=canvas.darkMode
@@ -411,6 +423,24 @@ class MainActivity : Activity() {
 
     private fun outlineColorSpinner(current:Int?): Spinner {
         val colors=outlineColors(); val names=colors.keys.toList(); val dark=canvas.darkMode
+        return Spinner(this).apply{
+            adapter=object: ArrayAdapter<String>(this@MainActivity,android.R.layout.simple_spinner_item,names){
+                override fun getView(position:Int,convertView:View?,parent:ViewGroup):View{return super.getView(position,convertView,parent).apply{setBackgroundColor(if(dark)0xff1e293b.toInt() else Color.WHITE);(this as? TextView)?.apply{setTextColor(if(dark)Color.WHITE else 0xff172033.toInt());setPadding(dp(10),dp(8),dp(10),dp(8))}}}
+                override fun getDropDownView(position:Int,convertView:View?,parent:ViewGroup):View{return super.getDropDownView(position,convertView,parent).apply{setBackgroundColor(if(dark)0xff1e293b.toInt() else Color.WHITE);(this as? TextView)?.apply{setTextColor(if(dark)Color.WHITE else 0xff172033.toInt());setPadding(dp(14),dp(10),dp(14),dp(10))}}}
+            }
+            val idx=colors.values.indexOf(current);setSelection(if(idx>=0)idx else 0);setBackgroundColor(if(dark)0xff1e293b.toInt() else 0xfff1f5f9.toInt())
+        }
+    }
+
+    private fun labelColors(): LinkedHashMap<String, Int?> = linkedMapOf(
+        "Default" to null, "Black" to Color.BLACK, "White" to Color.WHITE,
+        "Red" to 0xffdc2626.toInt(), "Orange" to 0xffea580c.toInt(), "Yellow" to 0xffca8a04.toInt(),
+        "Green" to 0xff16a34a.toInt(), "Blue" to 0xff2563eb.toInt(), "Purple" to 0xff7c3aed.toInt(),
+        "Pink" to 0xffdb2777.toInt(), "Teal" to 0xff0f766e.toInt(), "Gray" to 0xff64748b.toInt()
+    )
+
+    private fun labelColorSpinner(current:Int?): Spinner {
+        val colors=labelColors(); val names=colors.keys.toList(); val dark=canvas.darkMode
         return Spinner(this).apply{
             adapter=object: ArrayAdapter<String>(this@MainActivity,android.R.layout.simple_spinner_item,names){
                 override fun getView(position:Int,convertView:View?,parent:ViewGroup):View{return super.getView(position,convertView,parent).apply{setBackgroundColor(if(dark)0xff1e293b.toInt() else Color.WHITE);(this as? TextView)?.apply{setTextColor(if(dark)Color.WHITE else 0xff172033.toInt());setPadding(dp(10),dp(8),dp(10),dp(8))}}}
@@ -500,9 +530,11 @@ class MainActivity : Activity() {
             setBackgroundColor(if(dark)0xff1e293b.toInt() else 0xfff1f5f9.toInt())
         }
         val color=connectionColorSpinner(c.color)
+        val labelColor=labelColorSpinner(c.labelColor)
         val thickness=thicknessSpinner(c.thickness)
 
         box.addView(editorLabel("Label"));box.addView(label)
+        box.addView(editorLabel("Label Color"));box.addView(labelColor)
         box.addView(editorLabel("Notes"));box.addView(notes)
         box.addView(editorLabel("Arrow"));box.addView(arrows)
         box.addView(editorLabel("Line style"));box.addView(styles)
@@ -517,6 +549,7 @@ class MainActivity : Activity() {
                 c.lineStyle=LineStyle.values()[styles.selectedItemPosition]
                 c.thickness=LineThickness.values()[thickness.selectedItemPosition]
                 c.color=connectionColors().values.elementAt(color.selectedItemPosition)
+                c.labelColor=labelColors().values.elementAt(labelColor.selectedItemPosition)
                 history.record(before,doc.deepCopy());documentDirty=true;canvas.invalidate();updateUi()
             }.setNegativeButton("Cancel",null).create()
         dialog.setOnShowListener{

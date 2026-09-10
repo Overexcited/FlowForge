@@ -33,17 +33,15 @@ data class FlowElement(
     var notes: String = "",
     var outlineThickness: LineThickness = LineThickness.DEFAULT,
     var fillColor: Int? = null,
-    var outlineColor: Int? = null
+    var outlineColor: Int? = null,
+    var labelColor: Int? = null
 ) {
     companion object {
         fun defaultShape(type: ElementType): ShapeType = defaultShapeFor(type)
     }
 }
 
-data class ConnectionPoint(
-    var x: Float,
-    var y: Float
-)
+data class ConnectionPoint(var x: Float, var y: Float)
 
 data class FlowConnection(
     val id: String = UUID.randomUUID().toString(),
@@ -59,7 +57,8 @@ data class FlowConnection(
     var bendX: Float = 0f,
     var bendY: Float = 0f,
     var routePoints: MutableList<ConnectionPoint> = mutableListOf(),
-    var notes: String = ""
+    var notes: String = "",
+    var labelColor: Int? = null
 )
 
 data class FlowDocument(
@@ -72,7 +71,7 @@ data class FlowDocument(
     fun toJson(): String {
         val o = JSONObject()
         o.put("format", "flowforge")
-        o.put("version", 4)
+        o.put("version", 5)
         o.put("title", title)
         val es = JSONArray()
         elements.forEach { e ->
@@ -83,6 +82,7 @@ data class FlowDocument(
                 put("outlineThickness", e.outlineThickness.name)
                 if (e.outlineColor == null) put("outlineColor", JSONObject.NULL) else put("outlineColor", e.outlineColor)
                 if (e.fillColor == null) put("fillColor", JSONObject.NULL) else put("fillColor", e.fillColor)
+                if (e.labelColor == null) put("labelColor", JSONObject.NULL) else put("labelColor", e.labelColor)
             })
         }
         val cs = JSONArray()
@@ -96,6 +96,7 @@ data class FlowDocument(
                 val route = JSONArray(); c.routePoints.forEach { p -> route.put(JSONObject().apply { put("x", p.x); put("y", p.y) }) }
                 put("route", route)
                 put("notes", c.notes)
+                if (c.labelColor == null) put("labelColor", JSONObject.NULL) else put("labelColor", c.labelColor)
             })
         }
         o.put("elements", es); o.put("connections", cs)
@@ -114,12 +115,13 @@ data class FlowDocument(
                 val thickness = runCatching { LineThickness.valueOf(e.optString("outlineThickness")) }.getOrDefault(LineThickness.DEFAULT)
                 val fill = if (e.has("fillColor") && !e.isNull("fillColor")) e.optInt("fillColor") else null
                 val outlineColor = if (e.has("outlineColor") && !e.isNull("outlineColor")) e.optInt("outlineColor") else null
+                val labelColor = if (e.has("labelColor") && !e.isNull("labelColor")) e.optInt("labelColor") else null
                 d.elements += FlowElement(
                     id = e.optString("id", UUID.randomUUID().toString()), type = type, shape = shape,
                     x = e.optDouble("x", 300.0).toFloat(), y = e.optDouble("y", 300.0).toFloat(),
                     width = e.optDouble("width", 180.0).toFloat(), height = e.optDouble("height", 90.0).toFloat(),
                     label = e.optString("label", "Process"), notes = e.optString("notes", ""),
-                    outlineThickness = thickness, fillColor = fill, outlineColor = outlineColor
+                    outlineThickness = thickness, fillColor = fill, outlineColor = outlineColor, labelColor = labelColor
                 )
             }
             val cs = o.optJSONArray("connections") ?: JSONArray()
@@ -142,7 +144,8 @@ data class FlowDocument(
                             add(ConnectionPoint(p.optDouble("x", 0.0).toFloat(), p.optDouble("y", 0.0).toFloat()))
                         }
                     },
-                    notes = c.optString("notes", "")
+                    notes = c.optString("notes", ""),
+                    labelColor = if (c.has("labelColor") && !c.isNull("labelColor")) c.optInt("labelColor") else null
                 )
             }
             return d
