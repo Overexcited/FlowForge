@@ -368,9 +368,23 @@ class MainActivity : Activity() {
         val dark=canvas.darkMode
         val box=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(22),dp(6),dp(22),dp(4));setBackgroundColor(if(dark)0xff0f172a.toInt() else Color.WHITE)}
         val fieldText=if(dark)Color.WHITE else 0xff172033.toInt(); val fieldHint=if(dark)0xff94a3b8.toInt() else 0xff64748b.toInt()
-        fun edit(initial:String,hintText:String,minLines:Int=1)=EditText(this).apply{setText(initial);hint=hintText;if(minLines>1)this.minLines=minLines;setTextColor(fieldText);setHintTextColor(fieldHint);if(android.os.Build.VERSION.SDK_INT>=21)backgroundTintList=android.content.res.ColorStateList.valueOf(if(dark)0xff64748b.toInt() else 0xff94a3b8.toInt())}
-        val label=edit(e.label,"")
-        val notes=edit(e.notes,"Metadata / notes",3)
+        fun edit(initial:String,hintText:String,minLines:Int=1,multiline:Boolean=false)=EditText(this).apply{
+            setText(initial)
+            hint=hintText
+            if(minLines>1)this.minLines=minLines
+            if(multiline){
+                setSingleLine(false)
+                maxLines=8
+                gravity=Gravity.TOP or Gravity.START
+                setHorizontallyScrolling(false)
+                inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE or android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+            }
+            setTextColor(fieldText)
+            setHintTextColor(fieldHint)
+            if(android.os.Build.VERSION.SDK_INT>=21)backgroundTintList=android.content.res.ColorStateList.valueOf(if(dark)0xff64748b.toInt() else 0xff94a3b8.toInt())
+        }
+        val label=edit(e.label,"",3,true)
+        val notes=edit(e.notes,"Metadata / notes",3,true)
         val shapeEntries=listOf(
             ShapeType.RECTANGLE, ShapeType.ROUNDED, ShapeType.EXTRA_ROUNDED,
             ShapeType.OVAL, ShapeType.TRIANGLE, ShapeType.STAR, ShapeType.CLOUD,
@@ -406,7 +420,8 @@ class MainActivity : Activity() {
         box.addView(editorLabel("Outline Color"));box.addView(outlineSpinner)
         box.addView(editorLabel("Fill colour"));box.addView(fillSpinner)
         box.addView(editorLabel("Notes"));box.addView(notes)
-        val dialog=dialogBuilder().setTitle("Edit Block").setView(box).setPositiveButton("Save"){_,_->
+        val scroll=ScrollView(this).apply{isFillViewport=true;addView(box)}
+        val dialog=dialogBuilder().setTitle("Edit Block").setView(scroll).setPositiveButton("Save"){_,_->
             val before=doc.deepCopy();e.label=label.text.toString();e.notes=notes.text.toString();e.outlineThickness=thicknesses[thicknessSpinner.selectedItemPosition];e.outlineLineStyle=LineStyle.values()[outlineStyleSpinner.selectedItemPosition]
             e.outlineColor=outlineColors().values.elementAt(outlineSpinner.selectedItemPosition)
             e.labelColor=labelColors().values.elementAt(labelColorSpinner.selectedItemPosition)
@@ -601,16 +616,23 @@ class MainActivity : Activity() {
         }
         val fieldText=if(dark)Color.WHITE else 0xff172033.toInt()
         val fieldHint=if(dark)0xff94a3b8.toInt() else 0xff64748b.toInt()
-        fun edit(initial:String,hintText:String,minLines:Int=1)=EditText(this).apply{
+        fun edit(initial:String,hintText:String,minLines:Int=1,multiline:Boolean=false)=EditText(this).apply{
             setText(initial)
             hint=hintText
             if(minLines>1)this.minLines=minLines
+            if(multiline){
+                setSingleLine(false)
+                maxLines=8
+                gravity=Gravity.TOP or Gravity.START
+                setHorizontallyScrolling(false)
+                inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE or android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+            }
             setTextColor(fieldText)
             setHintTextColor(fieldHint)
             if(android.os.Build.VERSION.SDK_INT>=21) backgroundTintList=android.content.res.ColorStateList.valueOf(if(dark)0xff64748b.toInt() else 0xff94a3b8.toInt())
         }
-        val label=edit(c.label,"Line label")
-        val notes=edit(c.notes,"Line metadata / notes",3)
+        val label=edit(c.label,"Line label",3,true)
+        val notes=edit(c.notes,"Line metadata / notes",3,true)
         val arrows=Spinner(this).apply{
             adapter=object: ArrayAdapter<String>(this@MainActivity,android.R.layout.simple_spinner_item,ArrowType.values().map{it.name.lowercase().replaceFirstChar{c->c.uppercase()}}){
                 override fun getView(position:Int,convertView:View?,parent:ViewGroup):View{return super.getView(position,convertView,parent).apply{setBackgroundColor(if(dark)0xff1e293b.toInt() else Color.WHITE);(this as? TextView)?.setTextColor(if(dark)Color.WHITE else 0xff172033.toInt())}}
@@ -644,8 +666,9 @@ class MainActivity : Activity() {
         box.addView(editorLabel("Line style"));box.addView(styles)
         box.addView(editorLabel("Line thickness"));box.addView(thickness)
         box.addView(editorLabel("Line colour"));box.addView(color)
+        val scroll=ScrollView(this).apply{isFillViewport=true;addView(box)}
 
-        val dialog=dialogBuilder().setTitle("Edit connection").setView(box)
+        val dialog=dialogBuilder().setTitle("Edit connection").setView(scroll)
             .setPositiveButton("Save"){_,_->
                 val before=doc.deepCopy()
                 c.label=label.text.toString();c.notes=notes.text.toString()
