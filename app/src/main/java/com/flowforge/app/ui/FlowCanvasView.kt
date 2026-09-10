@@ -136,7 +136,7 @@ class FlowCanvasView(context: Context) : View(context) {
         val path=buildConnectionPath(p1,p2,con.bendX,con.bendY,pairIndex)
         paint.style=Paint.Style.STROKE
         paint.strokeWidth=if(con.id==selectedConnectionId)7f else 3.5f
-        paint.color=if(con.id==selectedConnectionId)0xff2563eb.toInt() else if(darkMode)0xffcbd5e1.toInt() else 0xff475569.toInt()
+        paint.color=if(con.id==selectedConnectionId)0xff2563eb.toInt() else con.color
         paint.pathEffect=when(con.lineStyle){LineStyle.DASHED->DashPathEffect(floatArrayOf(18f,12f),0f);LineStyle.DOTTED->DashPathEffect(floatArrayOf(4f,10f),0f);else->null}
         c.drawPath(path,paint);paint.pathEffect=null
         val tangent=pathTangent(p1,p2,con.bendX,con.bendY,pairIndex)
@@ -151,7 +151,7 @@ class FlowCanvasView(context: Context) : View(context) {
         val acx=a.x+a.width/2f; val acy=a.y+a.height/2f; val bcx=b.x+b.width/2f; val bcy=b.y+b.height/2f
         val dx=bcx-acx; val dy=bcy-acy
         val side = if(abs(dy)>=abs(dx)){if(dy>=0)1 else 3}else{if(dx>=0)2 else 4}
-        val spread=if(count<=1)0f else ((index-(count-1)/2f)*28f)
+        val spread=if(count<=1)0f else ((index-(count-1)/2f)*52f)
         fun point(e:FlowElement,side:Int,offset:Float):PointF=when(side){1->PointF(e.x+e.width/2f+offset,e.y+e.height);3->PointF(e.x+e.width/2f+offset,e.y);2->PointF(e.x+e.width,e.y+e.height/2f+offset);else->PointF(e.x,e.y+e.height/2f+offset)}
         val opposite=when(side){1->3;3->1;2->4;else->2}
         return point(a,side,spread) to point(b,opposite,spread)
@@ -286,20 +286,43 @@ class FlowCanvasView(context: Context) : View(context) {
     private fun handlePoints(r:RectF)=listOf(PointF(r.left,r.top),PointF(r.centerX(),r.top),PointF(r.right,r.top),PointF(r.left,r.centerY()),PointF(r.right,r.centerY()),PointF(r.left,r.bottom),PointF(r.centerX(),r.bottom),PointF(r.right,r.bottom))
     private fun handleAt(e:FlowElement,x:Float,y:Float):Handle{
         val r=RectF(e.x,e.y,e.x+e.width,e.y+e.height)
-        val pts=handlePoints(r)
-        val names=Handle.values().drop(1)
-        // Keep the handles comfortably touchable at every zoom level. The visible
-        // handle is 10 world units in radius; use a larger hit target and scale it
-        // with zoom so it does not become a frustratingly small target when zoomed out.
-        val hitRadius=(30f/scale).coerceAtLeast(18f)
-        val hit=pts.indexOfFirst{hypot(x-it.x,y-it.y)<=hitRadius}
-        return if(hit>=0)names[hit] else Handle.NONE
+        val margin=maxOf(34f/scale,22f)
+        fun near(px:Float,py:Float)=hypot(x-px,y-py)<=margin
+        // Corners get first priority and a deliberately generous touch target.
+        if(near(r.left,r.top)) return Handle.TL
+        if(near(r.right,r.top)) return Handle.TR
+        if(near(r.left,r.bottom)) return Handle.BL
+        if(near(r.right,r.bottom)) return Handle.BR
+        if(abs(y-r.top)<=margin && x>=r.left-margin && x<=r.right+margin) return Handle.T
+        if(abs(y-r.bottom)<=margin && x>=r.left-margin && x<=r.right+margin) return Handle.B
+        if(abs(x-r.left)<=margin && y>=r.top-margin && y<=r.bottom+margin) return Handle.L
+        if(abs(x-r.right)<=margin && y>=r.top-margin && y<=r.bottom+margin) return Handle.R
+        return Handle.NONE
     }
     private fun world(x:Float,y:Float)=PointF((x-panX)/scale,(y-panY)/scale)
     private fun selectedElement()=document.elements.firstOrNull{it.id==selectedElementId}
     private fun hitElement(x:Float,y:Float)=document.elements.asReversed().firstOrNull{hitShape(it,x,y)}
     private fun hitShape(e:FlowElement,x:Float,y:Float):Boolean{val r=RectF(e.x,e.y,e.x+e.width,e.y+e.height);return when(e.shape){ShapeType.DIAMOND->abs(x-r.centerX())/r.width()+abs(y-r.centerY())/r.height()<=.5f;else->r.contains(x,y)}}
-    private fun hitConnection(x:Float,y:Float):FlowConnection?=document.connections.asReversed().firstOrNull{con->val a=document.elements.firstOrNull{it.id==con.fromId}?:return@firstOrNull false;val b=document.elements.firstOrNull{it.id==con.toId}?:return@firstOrNull false;val mx=(a.x+b.x+a.width+b.width)/4+con.bendX/2;val my=(a.y+b.y+a.height+b.height)/4+con.bendY/2;hypot(x-mx,y-my)<30f}
+    private fun hitConnection(x:Float,y:Float):FlowConnection?{
+        val threshold=maxOf(22f,24f/scale)
+        return document.connections.asReversed().firstOrNull{con->
+            val a=document.elements.firstOrNull{it.id==con.fromId} ?: return@firstOrNull false
+            val b=document.elements.firstOrNull{it.id==con.toId} ?: return@firstOrNull false
+            val pair=document.connections.filter{it.fromId==con.fromId && it.toId==con.toId}
+            val index=pair.indexOfFirst{it.id==con.id}.coerceAtLeast(0)
+            val (p1,p2)=connectionEndpoints(a,b,index,pair.size)
+            val path=buildConnectionPath(p1,p2,con.bendX,con.bendY,index)
+            val pm=PathMeasure(path,false)
+            val pos=FloatArray(2)
+            var d=0f
+            var hit=false
+            while(d<=pm.length){
+                if(pm.getPosTan(d,pos,null) && hypot(x-pos[0],y-pos[1])<=threshold){hit=true;break}
+                d+=maxOf(6f,threshold/2f)
+            }
+            hit
+        }
+    }
     private fun wrap(s:String,max:Int):List<String>{if(s.isBlank())return listOf("");val out=mutableListOf<String>();var rest=s;while(rest.length>max){val cut=rest.substring(0,max).lastIndexOf(' ').let{if(it>0)it else max};out+=rest.substring(0,cut);rest=rest.substring(cut).trimStart()};out+=rest;return out}
     fun resetViewport(){scale=1f;panX=0f;panY=0f;invalidate()}
     fun fitContent(){if(document.elements.isEmpty()){resetViewport();return};val minX=document.elements.minOf{it.x};val minY=document.elements.minOf{it.y};val maxX=document.elements.maxOf{it.x+it.width};val maxY=document.elements.maxOf{it.y+it.height};val pad=80f;val sx=width/(maxX-minX+pad*2);val sy=height/(maxY-minY+pad*2);scale=min(sx,sy).coerceIn(.25f,5f);panX=width/2f-(minX+(maxX-minX)/2f)*scale;panY=height/2f-(minY+(maxY-minY)/2f)*scale;invalidate()}

@@ -71,9 +71,7 @@ class MainActivity : Activity() {
         }, LinearLayout.LayoutParams(0, dp(52), 1f))
         top.addView(iconButton("↶", "Undo") { undo() }.also { undoButton = it })
         top.addView(iconButton("↷", "Redo") { redo() }.also { redoButton = it })
-        top.addView(iconButton("＋", "Add") { addElement() })
-        top.addView(iconButton("⇩", "Import") { importMenu() })
-        top.addView(iconButton("⇧", "Export") { exportMenu() })
+        top.addView(iconButton("＋", "Add") { addMenu() })
         root.addView(top, LinearLayout.LayoutParams(-1, dp(62)))
 
         status = TextView(this).apply {
@@ -147,6 +145,7 @@ class MainActivity : Activity() {
             bar.visibility=View.VISIBLE; scroll.visibility=View.VISIBLE
             bar.addView(TextView(this).apply{text="Selected connection";textSize=12f;setPadding(4,0,dp(8),0)},LinearLayout.LayoutParams(0,WRAP_CONTENT,1f))
             bar.addView(smallButton("Reverse"){reverseConnection(c)})
+            bar.addView(smallButton("Color"){showConnectionColorPicker(c)})
             bar.addView(smallButton("Style: ${lineStyleLabel(c.lineStyle)}"){cycleConnectionLineStyle(c)})
             bar.addView(smallButton("Arrows: ${arrowLabel(c.arrowType)}"){cycleConnectionArrow(c)})
             bar.addView(smallButton("Edit"){showConnectionEditor(c)})
@@ -174,7 +173,17 @@ class MainActivity : Activity() {
 
     private fun mainMenu(){
         AlertDialog.Builder(this).setTitle("FlowForge")
-            .setItems(arrayOf("New diagram","Add element","Building blocks","Templates","Fit diagram","Reset zoom / position","Import","Export","Settings")){_,which->when(which){0->newDocument();1->addElement();2->assetPicker();3->templates();4->canvas.fitContent();5->canvas.resetViewport();6->importMenu();7->exportMenu();8->settings()}}.show()
+            .setItems(arrayOf("Fit diagram","Reset zoom / position","Import","Export","Settings")){_,which->when(which){0->canvas.fitContent();1->canvas.resetViewport();2->importMenu();3->exportMenu();4->settings()}}.show()
+    }
+
+    private fun addMenu(){
+        AlertDialog.Builder(this).setTitle("Add")
+            .setItems(arrayOf("New canvas","Element","Saved block","Template")){_,which->when(which){
+                0->newDocument()
+                1->addElement()
+                2->assetPicker()
+                3->templates()
+            }}.show()
     }
     private fun replaceDocument(newDoc: FlowDocument, record:Boolean=true) { if(record)history.record(doc.deepCopy(),newDoc.deepCopy());doc=newDoc;canvas.document=doc;canvas.selectedElementId=null;canvas.selectedConnectionId=null;updateUi() }
     private fun newDocument(){replaceDocument(FlowDocument())}
@@ -223,8 +232,32 @@ class MainActivity : Activity() {
         val arrows=Spinner(this).apply{adapter=ArrayAdapter(this@MainActivity,android.R.layout.simple_spinner_dropdown_item,ArrowType.values().map{it.name});setSelection(c.arrowType.ordinal)}
         val styles=Spinner(this).apply{adapter=ArrayAdapter(this@MainActivity,android.R.layout.simple_spinner_dropdown_item,LineStyle.values().map{it.name});setSelection(c.lineStyle.ordinal)}
         val bx=EditText(this).apply{setText(c.bendX.toString());hint="Bend X"};val by=EditText(this).apply{setText(c.bendY.toString());hint="Bend Y"}
-        box.addView(label);box.addView(notes);box.addView(TextView(this).apply{text="Arrow"});box.addView(arrows);box.addView(TextView(this).apply{text="Line style"});box.addView(styles);box.addView(bx);box.addView(by)
-        AlertDialog.Builder(this).setTitle("Edit connection").setView(box).setPositiveButton("Save"){_,_->val before=doc.deepCopy();c.label=label.text.toString();c.notes=notes.text.toString();c.arrowType=ArrowType.values()[arrows.selectedItemPosition];c.lineStyle=LineStyle.values()[styles.selectedItemPosition];c.bendX=bx.text.toString().toFloatOrNull()?:0f;c.bendY=by.text.toString().toFloatOrNull()?:0f;history.record(before,doc.deepCopy());canvas.invalidate();updateUi()}.setNegativeButton("Cancel",null).show()
+        val color=EditText(this).apply{setText(String.format("#%08X",c.color));hint="Line colour (#AARRGGBB)"}
+        box.addView(label);box.addView(notes);box.addView(TextView(this).apply{text="Arrow"});box.addView(arrows);box.addView(TextView(this).apply{text="Line style"});box.addView(styles);box.addView(TextView(this).apply{text="Line colour"});box.addView(color);box.addView(bx);box.addView(by)
+        AlertDialog.Builder(this).setTitle("Edit connection").setView(box).setPositiveButton("Save"){_,_->val before=doc.deepCopy();c.label=label.text.toString();c.notes=notes.text.toString();c.arrowType=ArrowType.values()[arrows.selectedItemPosition];c.lineStyle=LineStyle.values()[styles.selectedItemPosition];c.color=parseColor(color.text.toString(),c.color);c.bendX=bx.text.toString().toFloatOrNull()?:0f;c.bendY=by.text.toString().toFloatOrNull()?:0f;history.record(before,doc.deepCopy());canvas.invalidate();updateUi()}.setNegativeButton("Cancel",null).show()
+    }
+
+    private fun showConnectionColorPicker(c:FlowConnection){
+        val colors=linkedMapOf(
+            "Default" to 0xff475569.toInt(), "Black" to Color.BLACK, "White" to Color.WHITE,
+            "Red" to 0xffdc2626.toInt(), "Orange" to 0xffea580c.toInt(), "Yellow" to 0xffca8a04.toInt(),
+            "Green" to 0xff16a34a.toInt(), "Blue" to 0xff2563eb.toInt(), "Purple" to 0xff7c3aed.toInt(),
+            "Pink" to 0xffdb2777.toInt(), "Teal" to 0xff0f766e.toInt(), "Gray" to 0xff64748b.toInt()
+        )
+        val names=colors.keys.toTypedArray()
+        AlertDialog.Builder(this).setTitle("Connection colour").setItems(names){_,which->
+            val before=doc.deepCopy(); c.color=colors[names[which]]!!; history.record(before,doc.deepCopy()); canvas.invalidate(); updateUi()
+        }.setNeutralButton("Custom"){
+            _,_->val input=EditText(this).apply{setText(String.format("#%08X",c.color));hint="#AARRGGBB or #RRGGBB"}
+            AlertDialog.Builder(this).setTitle("Custom line colour").setView(input).setPositiveButton("Apply"){_,_->
+                val parsed=parseColor(input.text.toString(),c.color); val before=doc.deepCopy(); c.color=parsed; history.record(before,doc.deepCopy()); canvas.invalidate(); updateUi()
+            }.setNegativeButton("Cancel",null).show()
+        }.show()
+    }
+
+    private fun parseColor(text:String,fallback:Int):Int{
+        val t=text.trim()
+        return runCatching{ Color.parseColor(t) }.getOrElse{fallback}
     }
 
     private fun cloneElement(e:FlowElement){val before=doc.deepCopy();val copy=e.copy(id=java.util.UUID.randomUUID().toString(),x=e.x+maxOf(canvas.gridSize,40f),y=e.y+maxOf(canvas.gridSize,40f));var tries=0;while(doc.elements.any{overlaps(it,copy)}&&tries<20){copy.x+=40f;copy.y+=40f;tries++};doc.elements+=copy;canvas.selectedElementId=copy.id;canvas.selectedConnectionId=null;history.record(before,doc.deepCopy());canvas.invalidate();updateUi()}

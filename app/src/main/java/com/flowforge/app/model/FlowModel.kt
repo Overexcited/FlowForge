@@ -42,6 +42,7 @@ data class FlowConnection(
     var label: String = "",
     var arrowType: ArrowType = ArrowType.END,
     var lineStyle: LineStyle = LineStyle.SOLID,
+    var color: Int = 0xff475569.toInt(),
     var bendX: Float = 0f,
     var bendY: Float = 0f,
     var notes: String = ""
@@ -72,7 +73,7 @@ data class FlowDocument(
             cs.put(JSONObject().apply {
                 put("id", c.id); put("from", c.fromId); put("to", c.toId)
                 put("label", c.label); put("arrow", c.arrowType.name); put("style", c.lineStyle.name)
-                put("bendX", c.bendX); put("bendY", c.bendY); put("notes", c.notes)
+                put("color", c.color); put("bendX", c.bendX); put("bendY", c.bendY); put("notes", c.notes)
             })
         }
         o.put("elements", es); o.put("connections", cs)
@@ -103,6 +104,7 @@ data class FlowDocument(
                     label = c.optString("label", ""),
                     arrowType = runCatching { ArrowType.valueOf(c.optString("arrow")) }.getOrDefault(ArrowType.END),
                     lineStyle = runCatching { LineStyle.valueOf(c.optString("style")) }.getOrDefault(LineStyle.SOLID),
+                    color = c.optInt("color", 0xff475569.toInt()),
                     bendX = c.optDouble("bendX", 0.0).toFloat(), bendY = c.optDouble("bendY", 0.0).toFloat(),
                     notes = c.optString("notes", "")
                 )
