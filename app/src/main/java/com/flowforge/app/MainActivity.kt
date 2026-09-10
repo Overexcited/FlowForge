@@ -323,33 +323,122 @@ class MainActivity : Activity() {
     }
     private fun resetElement(e:FlowElement){val before=doc.deepCopy();e.shape=FlowElement.defaultShape(e.type);e.width=180f;e.height=90f;history.record(before,doc.deepCopy());canvas.invalidate();updateUi()}
 
+    private fun connectionColors(): LinkedHashMap<String, Int> = linkedMapOf(
+        "Default" to 0xff475569.toInt(), "Black" to Color.BLACK, "White" to Color.WHITE,
+        "Red" to 0xffdc2626.toInt(), "Orange" to 0xffea580c.toInt(), "Yellow" to 0xffca8a04.toInt(),
+        "Green" to 0xff16a34a.toInt(), "Blue" to 0xff2563eb.toInt(), "Purple" to 0xff7c3aed.toInt(),
+        "Pink" to 0xffdb2777.toInt(), "Teal" to 0xff0f766e.toInt(), "Gray" to 0xff64748b.toInt()
+    )
+
+    private fun connectionColorSpinner(current:Int): Spinner {
+        val colors=connectionColors()
+        val names=colors.keys.toList()
+        val dark=canvas.darkMode
+        return Spinner(this).apply{
+            adapter=object: ArrayAdapter<String>(this@MainActivity,android.R.layout.simple_spinner_item,names){
+                override fun getView(position:Int,convertView:View?,parent:ViewGroup):View{
+                    return super.getView(position,convertView,parent).apply{
+                        setBackgroundColor(if(dark)0xff1e293b.toInt() else Color.WHITE)
+                        (this as? TextView)?.apply{
+                            setTextColor(if(dark)Color.WHITE else 0xff172033.toInt())
+                            setPadding(dp(10),dp(8),dp(10),dp(8))
+                        }
+                    }
+                }
+                override fun getDropDownView(position:Int,convertView:View?,parent:ViewGroup):View{
+                    return super.getDropDownView(position,convertView,parent).apply{
+                        setBackgroundColor(if(dark)0xff1e293b.toInt() else Color.WHITE)
+                        (this as? TextView)?.apply{
+                            setTextColor(if(dark)Color.WHITE else 0xff172033.toInt())
+                            setPadding(dp(14),dp(10),dp(14),dp(10))
+                        }
+                    }
+                }
+            }
+            setSelection(colors.values.indexOf(current).takeIf{it>=0} ?: 0)
+            setBackgroundColor(if(dark)0xff1e293b.toInt() else 0xfff1f5f9.toInt())
+        }
+    }
+
+    private fun editorLabel(text:String)=TextView(this).apply{
+        this.text=text
+        textSize=13f
+        setTextColor(if(canvas.darkMode)Color.WHITE else 0xff172033.toInt())
+        setPadding(0,dp(10),0,dp(3))
+    }
+
     private fun showConnectionEditor(c:FlowConnection){
-        val box=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(22,8,22,4)}
-        val fieldText=if(canvas.darkMode)Color.WHITE else 0xff172033.toInt(); val fieldHint=if(canvas.darkMode)0xff94a3b8.toInt() else 0xff64748b.toInt()
-        val label=EditText(this).apply{setText(c.label);hint="Line label";setTextColor(fieldText);setHintTextColor(fieldHint)};val notes=EditText(this).apply{setText(c.notes);hint="Line metadata / notes";minLines=3;setTextColor(fieldText);setHintTextColor(fieldHint)}
-        val arrows=Spinner(this).apply{adapter=ArrayAdapter(this@MainActivity,android.R.layout.simple_spinner_dropdown_item,ArrowType.values().map{it.name});setSelection(c.arrowType.ordinal)}
-        val styles=Spinner(this).apply{adapter=ArrayAdapter(this@MainActivity,android.R.layout.simple_spinner_dropdown_item,LineStyle.values().map{it.name});setSelection(c.lineStyle.ordinal)}
-        val bx=EditText(this).apply{setText(c.bendX.toString());hint="Bend X";setTextColor(fieldText);setHintTextColor(fieldHint)};val by=EditText(this).apply{setText(c.bendY.toString());hint="Bend Y";setTextColor(fieldText);setHintTextColor(fieldHint)}
-        val color=EditText(this).apply{setText(String.format("#%08X",c.color));hint="Line colour (#AARRGGBB)";setTextColor(fieldText);setHintTextColor(fieldHint)}
-        box.addView(label);box.addView(notes);box.addView(TextView(this).apply{text="Arrow";setTextColor(if(canvas.darkMode)Color.WHITE else 0xff172033.toInt())});box.addView(arrows);box.addView(TextView(this).apply{text="Line style";setTextColor(if(canvas.darkMode)Color.WHITE else 0xff172033.toInt())});box.addView(styles);box.addView(TextView(this).apply{text="Line colour";setTextColor(if(canvas.darkMode)Color.WHITE else 0xff172033.toInt())});box.addView(color);box.addView(bx);box.addView(by)
-        dialogBuilder().setTitle("Edit connection").setView(box).setPositiveButton("Save"){_,_->val before=doc.deepCopy();c.label=label.text.toString();c.notes=notes.text.toString();c.arrowType=ArrowType.values()[arrows.selectedItemPosition];c.lineStyle=LineStyle.values()[styles.selectedItemPosition];c.color=parseColor(color.text.toString(),c.color);c.bendX=bx.text.toString().toFloatOrNull()?:0f;c.bendY=by.text.toString().toFloatOrNull()?:0f;history.record(before,doc.deepCopy());canvas.invalidate();updateUi()}.setNegativeButton("Cancel",null).show()
+        val dark=canvas.darkMode
+        val box=LinearLayout(this).apply{
+            orientation=LinearLayout.VERTICAL
+            setPadding(dp(22),dp(6),dp(22),dp(4))
+            setBackgroundColor(if(dark)0xff0f172a.toInt() else Color.WHITE)
+        }
+        val fieldText=if(dark)Color.WHITE else 0xff172033.toInt()
+        val fieldHint=if(dark)0xff94a3b8.toInt() else 0xff64748b.toInt()
+        fun edit(initial:String,hintText:String,minLines:Int=1)=EditText(this).apply{
+            setText(initial)
+            hint=hintText
+            if(minLines>1)this.minLines=minLines
+            setTextColor(fieldText)
+            setHintTextColor(fieldHint)
+            if(android.os.Build.VERSION.SDK_INT>=21) backgroundTintList=android.content.res.ColorStateList.valueOf(if(dark)0xff64748b.toInt() else 0xff94a3b8.toInt())
+        }
+        val label=edit(c.label,"Line label")
+        val notes=edit(c.notes,"Line metadata / notes",3)
+        val arrows=Spinner(this).apply{
+            adapter=object: ArrayAdapter<String>(this@MainActivity,android.R.layout.simple_spinner_item,ArrowType.values().map{it.name}){
+                override fun getView(position:Int,convertView:View?,parent:ViewGroup):View{return super.getView(position,convertView,parent).apply{setBackgroundColor(if(dark)0xff1e293b.toInt() else Color.WHITE);(this as? TextView)?.setTextColor(if(dark)Color.WHITE else 0xff172033.toInt())}}
+                override fun getDropDownView(position:Int,convertView:View?,parent:ViewGroup):View{return super.getDropDownView(position,convertView,parent).apply{setBackgroundColor(if(dark)0xff1e293b.toInt() else Color.WHITE);(this as? TextView)?.setTextColor(if(dark)Color.WHITE else 0xff172033.toInt())}}
+            }
+            setSelection(c.arrowType.ordinal)
+            setBackgroundColor(if(dark)0xff1e293b.toInt() else 0xfff1f5f9.toInt())
+        }
+        val styles=Spinner(this).apply{
+            adapter=object: ArrayAdapter<String>(this@MainActivity,android.R.layout.simple_spinner_item,LineStyle.values().map{it.name}){
+                override fun getView(position:Int,convertView:View?,parent:ViewGroup):View{return super.getView(position,convertView,parent).apply{setBackgroundColor(if(dark)0xff1e293b.toInt() else Color.WHITE);(this as? TextView)?.setTextColor(if(dark)Color.WHITE else 0xff172033.toInt())}}
+                override fun getDropDownView(position:Int,convertView:View?,parent:ViewGroup):View{return super.getDropDownView(position,convertView,parent).apply{setBackgroundColor(if(dark)0xff1e293b.toInt() else Color.WHITE);(this as? TextView)?.setTextColor(if(dark)Color.WHITE else 0xff172033.toInt())}}
+            }
+            setSelection(c.lineStyle.ordinal)
+            setBackgroundColor(if(dark)0xff1e293b.toInt() else 0xfff1f5f9.toInt())
+        }
+        val color=connectionColorSpinner(c.color)
+        val bx=edit(c.bendX.toString(),"Horizontal bend offset")
+        val by=edit(c.bendY.toString(),"Vertical bend offset")
+
+        box.addView(editorLabel("Label"));box.addView(label)
+        box.addView(editorLabel("Notes"));box.addView(notes)
+        box.addView(editorLabel("Arrow"));box.addView(arrows)
+        box.addView(editorLabel("Line style"));box.addView(styles)
+        box.addView(editorLabel("Line colour"));box.addView(color)
+        box.addView(editorLabel("Horizontal bend offset (X)"));box.addView(bx)
+        box.addView(editorLabel("Vertical bend offset (Y)"));box.addView(by)
+
+        val dialog=dialogBuilder().setTitle("Edit connection").setView(box)
+            .setPositiveButton("Save"){_,_->
+                val before=doc.deepCopy()
+                c.label=label.text.toString();c.notes=notes.text.toString()
+                c.arrowType=ArrowType.values()[arrows.selectedItemPosition]
+                c.lineStyle=LineStyle.values()[styles.selectedItemPosition]
+                c.color=connectionColors().values.elementAt(color.selectedItemPosition)
+                c.bendX=bx.text.toString().toFloatOrNull()?:0f
+                c.bendY=by.text.toString().toFloatOrNull()?:0f
+                history.record(before,doc.deepCopy());documentDirty=true;canvas.invalidate();updateUi()
+            }.setNegativeButton("Cancel",null).create()
+        dialog.setOnShowListener{
+            val textColor=if(canvas.darkMode)Color.WHITE else 0xff172033.toInt()
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(textColor)
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.setTextColor(textColor)
+            dialog.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(if(canvas.darkMode)0xff0f172a.toInt() else Color.WHITE))
+        }
+        dialog.show()
     }
 
     private fun showConnectionColorPicker(c:FlowConnection){
-        val colors=linkedMapOf(
-            "Default" to 0xff475569.toInt(), "Black" to Color.BLACK, "White" to Color.WHITE,
-            "Red" to 0xffdc2626.toInt(), "Orange" to 0xffea580c.toInt(), "Yellow" to 0xffca8a04.toInt(),
-            "Green" to 0xff16a34a.toInt(), "Blue" to 0xff2563eb.toInt(), "Purple" to 0xff7c3aed.toInt(),
-            "Pink" to 0xffdb2777.toInt(), "Teal" to 0xff0f766e.toInt(), "Gray" to 0xff64748b.toInt()
-        )
+        val colors=connectionColors()
         val names=colors.keys.toTypedArray()
         dialogBuilder().setTitle("Connection colour").setItems(names){_,which->
-            val before=doc.deepCopy(); c.color=colors[names[which]]!!; history.record(before,doc.deepCopy()); canvas.invalidate(); updateUi()
-        }.setNeutralButton("Custom"){
-            _,_->val input=EditText(this).apply{setText(String.format("#%08X",c.color));hint="#AARRGGBB or #RRGGBB";setTextColor(if(canvas.darkMode)Color.WHITE else 0xff172033.toInt());setHintTextColor(if(canvas.darkMode)0xff94a3b8.toInt() else 0xff64748b.toInt())}
-            dialogBuilder().setTitle("Custom line colour").setView(input).setPositiveButton("Apply"){_,_->
-                val parsed=parseColor(input.text.toString(),c.color); val before=doc.deepCopy(); c.color=parsed; history.record(before,doc.deepCopy()); canvas.invalidate(); updateUi()
-            }.setNegativeButton("Cancel",null).show()
+            val before=doc.deepCopy();c.color=colors[names[which]]!!;history.record(before,doc.deepCopy());documentDirty=true;canvas.invalidate();updateUi()
         }.show()
     }
 
