@@ -244,7 +244,20 @@ class FlowCanvasView(context: Context) : View(context) {
         e.x=l;e.y=t;e.width=r-l;e.height=b-t
     }
     private fun handlePoints(r:RectF)=listOf(PointF(r.left,r.top),PointF(r.centerX(),r.top),PointF(r.right,r.top),PointF(r.left,r.centerY()),PointF(r.right,r.centerY()),PointF(r.left,r.bottom),PointF(r.centerX(),r.bottom),PointF(r.right,r.bottom))
-    private fun handleAt(e:FlowElement,x:Float,y:Float):Handle{val r=RectF(e.x,e.y,e.x+e.width,e.y+e.height);val margin=maxOf(34f/scale,22f);fun near(px:Float,py:Float)=hypot(x-px,y-py)<=margin;if(near(r.left,r.top))return Handle.TL;if(near(r.right,r.top))return Handle.TR;if(near(r.left,r.bottom))return Handle.BL;if(near(r.right,r.bottom))return Handle.BR;if(abs(y-r.top)<=margin&&x>=r.left-margin&&x<=r.right+margin)return Handle.T;if(abs(y-r.bottom)<=margin&&x>=r.left-margin&&x<=r.right+margin)return Handle.B;if(abs(x-r.left)<=margin&&y>=r.top-margin&&y<=r.bottom+margin)return Handle.L;if(abs(x-r.right)<=margin&&y>=r.top-margin&&y<=r.bottom+margin)return Handle.R;return Handle.NONE}
+    private fun handleAt(e:FlowElement,x:Float,y:Float):Handle{
+        val r=RectF(e.x,e.y,e.x+e.width,e.y+e.height)
+        val margin=maxOf(34f/scale,22f)
+        fun near(px:Float,py:Float):Boolean = hypot(x-px,y-py)<=margin
+        if(near(r.left,r.top)) return Handle.TL
+        if(near(r.right,r.top)) return Handle.TR
+        if(near(r.left,r.bottom)) return Handle.BL
+        if(near(r.right,r.bottom)) return Handle.BR
+        if(abs(y-r.top)<=margin&&x>=r.left-margin&&x<=r.right+margin) return Handle.T
+        if(abs(y-r.bottom)<=margin&&x>=r.left-margin&&x<=r.right+margin) return Handle.B
+        if(abs(x-r.left)<=margin&&y>=r.top-margin&&y<=r.bottom+margin) return Handle.L
+        if(abs(x-r.right)<=margin&&y>=r.top-margin&&y<=r.bottom+margin) return Handle.R
+        return Handle.NONE
+    }
     private fun world(x:Float,y:Float)=PointF((x-panX)/scale,(y-panY)/scale)
     private fun selectedElement()=document.elements.firstOrNull{it.id==selectedElementId}
     private fun hitElement(x:Float,y:Float)=document.elements.asReversed().firstOrNull{hitShape(it,x,y)}
