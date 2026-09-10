@@ -49,6 +49,9 @@ class MainActivity : Activity() {
     }
 
     private fun buildUi() {
+        // Initialize the canvas before constructing any UI that reads its settings.
+        canvas = FlowCanvasView(this)
+
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(if (canvas.darkMode) 0xff0f172a.toInt() else Color.WHITE)
@@ -92,7 +95,6 @@ class MainActivity : Activity() {
         }
         root.addView(contextScroll, LinearLayout.LayoutParams(-1, dp(58)))
 
-        canvas = FlowCanvasView(this)
         canvas.onSelectionChanged = { updateUi() }
         canvas.onDoubleTapElement = { showElementEditor(it) }
         canvas.onNotesTap = { showNotes(it) }
