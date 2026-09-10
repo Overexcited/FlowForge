@@ -1,21 +1,3 @@
-<vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="108dp"
-    android:height="108dp"
-    android:viewportWidth="108"
-    android:viewportHeight="108">
-    <path
-        android:fillColor="#0F172A"
-        android:pathData="M0,0h108v108h-108z" />
-    <path
-        android:fillColor="#2563EB"
-        android:pathData="M24,24h60v16h-44v12h32v16h-32v16h-16z" />
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M76,48h8v36h-8z" />
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M68,76h24v8h-24z" />
-    <path
-        android:fillColor="#60A5FA"
-        android:pathData="M76,40a8,8 0,1 0,0 16a8,8 0,1 0,0 -16" />
-</vector>
+<bitmap xmlns:android="http://schemas.android.com/apk/res/android"
+    android:src="@drawable/flowforge_launcher_icon"
+    android:gravity="fill" />
