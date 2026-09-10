@@ -140,7 +140,7 @@ class MainActivity : Activity() {
     }
 
     private fun smallButton(label:String, action:()->Unit) = TextView(this).apply {
-        text=label; textSize=12f; includeFontPadding=false; gravity=Gravity.CENTER
+        text=label; textSize=12f; includeFontPadding=false; gravity=Gravity.CENTER; isSingleLine=true
         // Size the button from its text instead of Android Button's built-in minimum width.
         // 32dp height gives roughly the same visual padding above/below as the 9dp
         // left/right padding used here.
@@ -174,11 +174,12 @@ class MainActivity : Activity() {
         if(e!=null && !canvas.connectionMode){
             bar.visibility=View.VISIBLE; scroll.visibility=View.VISIBLE
             bar.addView(smallButton("Edit"){showElementEditor(e)})
-            bar.addView(smallButton("✎ Draw"){canvas.beginConnectionMode()})
+            bar.addView(smallButton("Connect"){canvas.beginConnectionMode()})
             bar.addView(smallButton("Clone"){cloneElement(e)})
             bar.addView(smallButton("Reset"){resetElement(e)})
             bar.addView(smallButton("Delete"){deleteSelected()})
             bar.addView(smallButton("Save Block"){saveAsset(e)})
+            bar.addView(Space(this), LinearLayout.LayoutParams(0,1,1f))
         } else if(c!=null && !canvas.connectionMode){
             bar.visibility=View.VISIBLE; scroll.visibility=View.VISIBLE
             bar.addView(smallButton("Reverse"){reverseConnection(c)})
@@ -187,6 +188,7 @@ class MainActivity : Activity() {
             bar.addView(smallButton("Arrows: ${arrowLabel(c.arrowType)}"){cycleConnectionArrow(c)})
             bar.addView(smallButton("Edit"){showConnectionEditor(c)})
             bar.addView(smallButton("Delete"){deleteSelected()})
+            bar.addView(Space(this), LinearLayout.LayoutParams(0,1,1f))
         } else if(canvas.connectionMode){
             bar.visibility=View.VISIBLE; scroll.visibility=View.VISIBLE
             bar.addView(TextView(this).apply{text="Connection mode";textSize=12f;setTextColor(if(canvas.darkMode)Color.WHITE else 0xff172033.toInt());setPadding(4,0,dp(8),0)},LinearLayout.LayoutParams(0,WRAP_CONTENT,1f))
