@@ -112,7 +112,7 @@ class MainActivity : Activity() {
         canvas.onSelectionChanged = { updateUi() }
         canvas.onDoubleTapElement = { showElementEditor(it) }
         canvas.onNotesTap = { showNotes(it) }
-        canvas.onConnectionRequested = { from, to, fromSide, toSide, bendX, bendY -> createConnection(from, to, fromSide, toSide, bendX, bendY) }
+        canvas.onConnectionRequested = { from, to, fromSide, toSide, route -> createConnection(from, to, fromSide, toSide, route) }
         canvas.onConnectionCancelled = { updateUi() }
         canvas.onMoveFinished = { e, oldX, oldY ->
             val before=doc.deepCopy(); before.elements.firstOrNull{it.id==e.id}?.apply{x=oldX;y=oldY}
@@ -306,9 +306,17 @@ class MainActivity : Activity() {
         canvas.invalidate(); updateUi()
     }
 
-    private fun createConnection(fromId:String,toId:String,fromSide:ConnectionSide=ConnectionSide.AUTO,toSide:ConnectionSide=ConnectionSide.AUTO,bendX:Float=0f,bendY:Float=0f){
+    private fun createConnection(fromId:String,toId:String,fromSide:ConnectionSide=ConnectionSide.AUTO,toSide:ConnectionSide=ConnectionSide.AUTO,route:List<PointF> = emptyList()){
         if(fromId==toId)return
-        val before=doc.deepCopy(); val c=FlowConnection(fromId=fromId,toId=toId,fromSide=fromSide,toSide=toSide,bendX=bendX,bendY=bendY);doc.connections+=c
+        val before=doc.deepCopy()
+        val c=FlowConnection(
+            fromId=fromId,
+            toId=toId,
+            fromSide=fromSide,
+            toSide=toSide,
+            routePoints=route.map{ConnectionPoint(it.x,it.y)}.toMutableList()
+        )
+        doc.connections+=c
         canvas.selectedConnectionId=c.id;canvas.selectedElementId=null;history.record(before,doc.deepCopy());canvas.cancelConnectionMode();canvas.invalidate();updateUi()
     }
 

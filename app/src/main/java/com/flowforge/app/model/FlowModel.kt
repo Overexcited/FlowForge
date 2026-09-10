@@ -40,6 +40,11 @@ data class FlowElement(
     }
 }
 
+data class ConnectionPoint(
+    var x: Float,
+    var y: Float
+)
+
 data class FlowConnection(
     val id: String = UUID.randomUUID().toString(),
     var fromId: String,
@@ -53,6 +58,7 @@ data class FlowConnection(
     var toSide: ConnectionSide = ConnectionSide.AUTO,
     var bendX: Float = 0f,
     var bendY: Float = 0f,
+    var routePoints: MutableList<ConnectionPoint> = mutableListOf(),
     var notes: String = ""
 )
 
@@ -86,7 +92,10 @@ data class FlowDocument(
                 put("label", c.label); put("arrow", c.arrowType.name); put("style", c.lineStyle.name)
                 put("color", c.color); put("thickness", c.thickness.name)
                 put("fromSide", c.fromSide.name); put("toSide", c.toSide.name)
-                put("bendX", c.bendX); put("bendY", c.bendY); put("notes", c.notes)
+                put("bendX", c.bendX); put("bendY", c.bendY)
+                val route = JSONArray(); c.routePoints.forEach { p -> route.put(JSONObject().apply { put("x", p.x); put("y", p.y) }) }
+                put("route", route)
+                put("notes", c.notes)
             })
         }
         o.put("elements", es); o.put("connections", cs)
@@ -126,6 +135,13 @@ data class FlowDocument(
                     fromSide = runCatching { ConnectionSide.valueOf(c.optString("fromSide")) }.getOrDefault(ConnectionSide.AUTO),
                     toSide = runCatching { ConnectionSide.valueOf(c.optString("toSide")) }.getOrDefault(ConnectionSide.AUTO),
                     bendX = c.optDouble("bendX", 0.0).toFloat(), bendY = c.optDouble("bendY", 0.0).toFloat(),
+                    routePoints = mutableListOf<ConnectionPoint>().apply {
+                        val route = c.optJSONArray("route") ?: JSONArray()
+                        for (j in 0 until route.length()) {
+                            val p = route.getJSONObject(j)
+                            add(ConnectionPoint(p.optDouble("x", 0.0).toFloat(), p.optDouble("y", 0.0).toFloat()))
+                        }
+                    },
                     notes = c.optString("notes", "")
                 )
             }

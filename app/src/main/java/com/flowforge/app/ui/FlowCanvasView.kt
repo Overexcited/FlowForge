@@ -15,7 +15,7 @@ class FlowCanvasView(context: Context) : View(context) {
     var onSelectionChanged: (() -> Unit)? = null
     var onDoubleTapElement: ((FlowElement) -> Unit)? = null
     var onNotesTap: ((FlowElement) -> Unit)? = null
-    var onConnectionRequested: ((String, String, ConnectionSide, ConnectionSide, Float, Float) -> Unit)? = null
+    var onConnectionRequested: ((String, String, ConnectionSide, ConnectionSide, List<PointF>) -> Unit)? = null
     var onConnectionCancelled: (() -> Unit)? = null
     var onMoveFinished: ((FlowElement, Float, Float) -> Unit)? = null
     var onResizeFinished: ((FlowElement, Float, Float, Float, Float) -> Unit)? = null
@@ -145,16 +145,21 @@ class FlowCanvasView(context: Context) : View(context) {
         val autoEndpoints=connectionEndpoints(a,b,pairIndex,pair.size)
         val p1=if(con.fromSide==ConnectionSide.AUTO)autoEndpoints.first else explicitEndpoint(a,con.fromSide)
         val p2=if(con.toSide==ConnectionSide.AUTO)autoEndpoints.second else explicitEndpoint(b,con.toSide)
-        val path=buildConnectionPath(p1,p2,con.bendX,con.bendY,pairIndex)
+        val path = if (con.routePoints.size >= 2) {
+            val route = con.routePoints.map { PointF(it.x, it.y) }.toMutableList()
+            route[0] = p1; route[route.lastIndex] = p2
+            buildRoutedPath(route)
+        } else {
+            buildConnectionPath(p1,p2,con.bendX,con.bendY,pairIndex)
+        }
         paint.style=Paint.Style.STROKE
         paint.strokeWidth=if(con.id==selectedConnectionId)7f else connectionWidth(con)
         paint.color=if(con.id==selectedConnectionId)0xff2563eb.toInt() else con.color
         paint.pathEffect=when(con.lineStyle){LineStyle.DASHED->DashPathEffect(floatArrayOf(18f,12f),0f);LineStyle.DOTTED->DashPathEffect(floatArrayOf(4f,10f),0f);else->null}
         c.drawPath(path,paint);paint.pathEffect=null
-        val tangent=pathTangent(p1,p2,con.bendX,con.bendY,pairIndex)
         if(con.arrowType==ArrowType.REPEATED) drawRepeatedArrows(c,path)
-        else if(con.arrowType!=ArrowType.NONE) drawArrow(c,tangent.first.x,tangent.first.y,tangent.second.x,tangent.second.y,con.arrowType)
-        val mid=connectionMidpoint(p1,p2,con.bendX,con.bendY,pairIndex)
+        else if(con.arrowType!=ArrowType.NONE) drawConnectionArrows(c,path,con.arrowType)
+        val mid=pathMidpoint(path)
         if(con.label.isNotBlank()){textPaint.color=if(darkMode)Color.WHITE else 0xff334155.toInt();textPaint.textSize=21f;c.drawText(con.label,mid.x+6,mid.y-6,textPaint)}
         if(con.notes.isNotBlank()) drawBadge(c,mid.x+12,mid.y-18,false)
     }
@@ -209,20 +214,136 @@ class FlowCanvasView(context: Context) : View(context) {
         return p
     }
 
-    private fun connectionMidpoint(p1:PointF,p2:PointF,bx:Float,by:Float,index:Int)=PointF((p1.x+p2.x)/2f+bx/2f,(p1.y+p2.y)/2f+by/2f)
+    private fun buildRoutedPath(points:List<PointF>):Path{
+        val p=Path();if(points.isEmpty())return p;if(points.size==1){p.moveTo(points[0].x,points[0].y);return p}
+        val radius=22f
+        p.moveTo(points[0].x,points[0].y)
+        for(i in 1 until points.lastIndex+1){
+            val prev=points[i-1];val cur=points[i];val next=if(i<points.lastIndex)points[i+1] else null
+            if(next==null){p.lineTo(cur.x,cur.y);break}
+            val inLen=hypot(cur.x-prev.x,cur.y-prev.y);val outLen=hypot(next.x-cur.x,next.y-cur.y)
+            if(inLen<1f||outLen<1f){p.lineTo(cur.x,cur.y);continue}
+            val r=min(radius,min(inLen,outLen)*0.32f)
+            val before=PointF(cur.x+(prev.x-cur.x)*r/inLen,cur.y+(prev.y-cur.y)*r/inLen)
+            val after=PointF(cur.x+(next.x-cur.x)*r/outLen,cur.y+(next.y-cur.y)*r/outLen)
+            p.lineTo(before.x,before.y);p.quadTo(cur.x,cur.y,after.x,after.y)
+        }
+        return p
+    }
 
-    private fun pathTangent(p1:PointF,p2:PointF,bx:Float,by:Float,index:Int):Pair<PointF,PointF>{
-        val dx=p2.x-p1.x; val dy=p2.y-p1.y
-        return if(abs(dy)>=abs(dx)){val mid=(p1.y+p2.y)/2f + if(index%2==0)0f else 18f;PointF(p2.x,mid) to p2}
-        else{val mid=(p1.x+p2.x)/2f + if(index%2==0)0f else 18f;PointF(mid,p2.y) to p2}
+    private fun pathMidpoint(path:Path):PointF{
+        val m=PathMeasure(path,false);if(m.length<=0f)return PointF()
+        val pos=FloatArray(2);m.getPosTan(m.length/2f,pos,null);return PointF(pos[0],pos[1])
+    }
+
+    private fun drawConnectionArrows(c:Canvas,path:Path,type:ArrowType){
+        val m=PathMeasure(path,false);if(m.length<=1f)return
+        val pos=FloatArray(2);val tan=FloatArray(2)
+        fun sample(distance:Float):Pair<PointF,PointF>{m.getPosTan(distance.coerceIn(0f,m.length),pos,tan);return PointF(pos[0],pos[1]) to PointF(tan[0],tan[1])}
+        val end=sample(m.length);val start=sample(min(20f,m.length))
+        when(type){
+            ArrowType.END->drawArrow(c,end.first.x-end.second.x*8f,end.first.y-end.second.y*8f,end.first.x,end.first.y,ArrowType.END)
+            ArrowType.BOTH->{drawArrow(c,end.first.x-end.second.x*8f,end.first.y-end.second.y*8f,end.first.x,end.first.y,ArrowType.END);drawArrow(c,start.first.x+start.second.x*8f,start.first.y+start.second.y*8f,start.first.x,start.first.y,ArrowType.END)}
+            ArrowType.CIRCLE->{paint.style=Paint.Style.STROKE;paint.strokeWidth=3f;c.drawCircle(end.first.x,end.first.y,7f,paint)}
+            ArrowType.DIAMOND->drawArrow(c,end.first.x-end.second.x*8f,end.first.y-end.second.y*8f,end.first.x,end.first.y,ArrowType.DIAMOND)
+            else->Unit
+        }
+    }
+
+    private fun simplifyGesture(points:List<PointF>):List<PointF>{
+        if(points.size<2)return points.toList()
+        val out=mutableListOf<PointF>();out+=points.first();var last=points.first();var lastDx=0f;var lastDy=0f
+        for(i in 1 until points.lastIndex){
+            val cur=points[i];val dx=cur.x-last.x;val dy=cur.y-last.y
+            if(hypot(dx,dy)<10f)continue
+            val len=hypot(dx,dy);val ndx=dx/len;val ndy=dy/len
+            if(out.size==1||abs(ndx-lastDx)+abs(ndy-lastDy)>0.35f||hypot(dx,dy)>70f){out+=PointF(cur.x,cur.y);last=cur;lastDx=ndx;lastDy=ndy}
+        }
+        out+=points.last();return out.take(9)
+    }
+
+    private fun obstacleRects(excludeA:String,excludeB:String):List<RectF>{
+        val margin=24f
+        return document.elements.filter{it.id!=excludeA&&it.id!=excludeB}.map{RectF(it.x-margin,it.y-margin,it.x+it.width+margin,it.y+it.height+margin)}
+    }
+
+    private fun segmentClear(a:PointF,b:PointF,obstacles:List<RectF>):Boolean{
+        val steps=max(2,(hypot(b.x-a.x,b.y-a.y)/10f).toInt())
+        for(i in 0..steps){val t=i.toFloat()/steps;val x=a.x+(b.x-a.x)*t;val y=a.y+(b.y-a.y)*t;if(obstacles.any{it.contains(x,y)})return false}
+        return true
+    }
+
+    private fun routeSegment(start:PointF,end:PointF,obstacles:List<RectF>,hints:List<PointF>):List<PointF>{
+        if(segmentClear(start,end,obstacles))return listOf(start,end)
+        val cell=max(20f,min(32f,gridSize/1.5f));val margin=240f
+        val xs=mutableListOf(start.x,end.x);val ys=mutableListOf(start.y,end.y)
+        obstacles.forEach{xs+=it.left;xs+=it.right;ys+=it.top;ys+=it.bottom};hints.forEach{xs+=it.x;ys+=it.y}
+        val minX=floor((xs.minOrNull()!!-margin)/cell)*cell
+        val maxX=ceil((xs.maxOrNull()!!+margin)/cell)*cell
+        val minY=floor((ys.minOrNull()!!-margin)/cell)*cell
+        val maxY=ceil((ys.maxOrNull()!!+margin)/cell)*cell
+        fun cellPoint(k:Pair<Int,Int>)=PointF(minX+k.first*cell,minY+k.second*cell)
+        fun cellKey(p:PointF)=Pair(round((p.x-minX)/cell).toInt(),round((p.y-minY)/cell).toInt())
+        val s=cellKey(start);val g=cellKey(end);val maxIx=round((maxX-minX)/cell).toInt();val maxIy=round((maxY-minY)/cell).toInt()
+        fun blocked(k:Pair<Int,Int>):Boolean{if(k==s||k==g)return false;val p=cellPoint(k);return obstacles.any{it.contains(p.x,p.y)}}
+        val came=HashMap<Pair<Int,Int>,Pair<Int,Int>>();val gScore=HashMap<Pair<Int,Int>,Float>();val fScore=HashMap<Pair<Int,Int>,Float>()
+        val open=java.util.PriorityQueue<Pair<Int,Int>>(compareBy{fScore[it]?:Float.POSITIVE_INFINITY})
+        gScore[s]=0f;fScore[s]=heuristic(s,g);open.add(s)
+        val dirs=arrayOf(Pair(1,0),Pair(-1,0),Pair(0,1),Pair(0,-1))
+        var found=false;var guard=0
+        while(open.isNotEmpty()&&guard++<12000){
+            val cur=open.poll();if(cur==g){found=true;break}
+            for(d in dirs){
+                val n=Pair(cur.first+d.first,cur.second+d.second)
+                if(n.first<0||n.second<0||n.first>maxIx||n.second>maxIy||blocked(n))continue
+                val prev=came[cur];val bend=if(prev!=null&&prev.first!=cur.first&&prev.second!=cur.second)5f else 0f
+                val p=cellPoint(n);val hintPenalty=if(hints.isEmpty())0f else hints.minOf{hypot(p.x-it.x,p.y-it.y)}*0.012f
+                val tentative=(gScore[cur]?:Float.POSITIVE_INFINITY)+1f+bend+hintPenalty
+                if(tentative<(gScore[n]?:Float.POSITIVE_INFINITY)){came[n]=cur;gScore[n]=tentative;fScore[n]=tentative+heuristic(n,g);open.add(n)}
+            }
+        }
+        if(!found)return listOf(start,end)
+        val cells=mutableListOf<Pair<Int,Int>>();var cur=g;cells+=cur
+        while(cur!=s){cur=came[cur]?:break;cells+=cur};cells.reverse()
+        val pts=cells.map{cellPoint(it)}.toMutableList();if(pts.isNotEmpty()){pts[0]=start;pts[pts.lastIndex]=end}
+        val simplified=mutableListOf<PointF>()
+        for(pt in pts){
+            if(simplified.size<2||!collinear(simplified[simplified.lastIndex-1],simplified.last(),pt))simplified+=pt else simplified[simplified.lastIndex]=pt
+        }
+        return simplified
+    }
+
+    private fun heuristic(a:Pair<Int,Int>,b:Pair<Int,Int>)=abs(a.first-b.first)+abs(a.second-b.second).toFloat()
+    private fun collinear(a:PointF,b:PointF,c:PointF):Boolean{val abx=b.x-a.x;val aby=b.y-a.y;val bcx=c.x-b.x;val bcy=c.y-b.y;return abs(abx*bcy-aby*bcx)<1f}
+
+    private fun routeConnection(a:FlowElement,b:FlowElement,fromSide:ConnectionSide,toSide:ConnectionSide,gesture:List<PointF>):List<PointF>{
+        val start=explicitEndpoint(a,fromSide);val end=explicitEndpoint(b,toSide)
+        val obstacles=obstacleRects(a.id,b.id)+listOf(
+            RectF(a.x-24f,a.y-24f,a.x+a.width+24f,a.y+a.height+24f),
+            RectF(b.x-24f,b.y-24f,b.x+b.width+24f,b.y+b.height+24f)
+        )
+        val outwardFrom=when(fromSide){ConnectionSide.TOP->PointF(start.x,start.y-28f);ConnectionSide.RIGHT->PointF(start.x+28f,start.y);ConnectionSide.BOTTOM->PointF(start.x,start.y+28f);ConnectionSide.LEFT->PointF(start.x-28f,start.y);else->start}
+        val outwardTo=when(toSide){ConnectionSide.TOP->PointF(end.x,end.y-28f);ConnectionSide.RIGHT->PointF(end.x+28f,end.y);ConnectionSide.BOTTOM->PointF(end.x,end.y+28f);ConnectionSide.LEFT->PointF(end.x-28f,end.y);else->end}
+        val hints=simplifyGesture(gesture).filter{p->!obstacles.any{it.contains(p.x,p.y)}}.drop(1).dropLast(1).take(6)
+        val anchors=mutableListOf<PointF>();anchors+=start;anchors+=outwardFrom;anchors+=hints;anchors+=outwardTo;anchors+=end
+        val result=mutableListOf<PointF>()
+        for(i in 0 until anchors.lastIndex){val seg=routeSegment(anchors[i],anchors[i+1],obstacles,hints);if(i==0)result.addAll(seg) else result.addAll(seg.drop(1))}
+        if(result.size<2)result.add(end)
+        return result
     }
 
     private fun drawConnectionPreview(c:Canvas){
         val start=document.elements.firstOrNull{it.id==connectionStartId} ?: return
-        val end=connectionPreview
-        paint.style=Paint.Style.STROKE;paint.strokeWidth=5f;paint.color=0xff2563eb.toInt();paint.pathEffect=DashPathEffect(floatArrayOf(14f,10f),0f)
-        val p=Path();p.moveTo(connectionStartPoint.x,connectionStartPoint.y);val mid=if(connectionGesture.size>=3)connectionGesture[connectionGesture.size/2] else PointF((connectionStartPoint.x+end.x)/2f,(connectionStartPoint.y+end.y)/2f);p.quadTo(mid.x,mid.y,end.x,end.y)
-        c.drawPath(p,paint);paint.pathEffect=null
+        if(connectionGesture.size<2)return
+        val points=connectionGesture
+        paint.style=Paint.Style.STROKE;paint.strokeWidth=5f;paint.color=0xff2563eb.toInt();paint.pathEffect=null
+        val p=Path();p.moveTo(points.first().x,points.first().y)
+        for(i in 1 until points.size){val prev=points[i-1];val cur=points[i];p.quadTo((prev.x+cur.x)/2f,(prev.y+cur.y)/2f,cur.x,cur.y)}
+        c.drawPath(p,paint)
+        val w=connectionPreview;paint.style=Paint.Style.FILL;paint.color=0xff2563eb.toInt();c.drawCircle(w.x,w.y,5f,paint)
+        paint.style=Paint.Style.STROKE
+        // Highlight the four face centers on the source block so the chosen side is obvious.
+        val r=RectF(start.x,start.y,start.x+start.width,start.y+start.height);val side=endpointSide(start,connectionStartPoint);val q=explicitEndpoint(start,side);c.drawCircle(q.x,q.y,7f,paint)
     }
 
     fun beginConnectionMode(){ connectionMode=true; connectionStartId=null; connectionGesture.clear(); connectionPreview.set(0f,0f); invalidate(); onSelectionChanged?.invoke() }
@@ -268,14 +389,8 @@ class FlowCanvasView(context: Context) : View(context) {
                     if(target!=null&&target.id!=source){
                         val start=document.elements.firstOrNull{it.id==source}; if(start!=null){
                             val fromSide=endpointSide(start,connectionStartPoint); val toSide=endpointSide(target,w)
-                            val dx=w.x-connectionStartPoint.x; val dy=w.y-connectionStartPoint.y
-                            var bx=0f; var by=0f
-                            if(connectionGesture.size>=3){
-                                val mid=connectionGesture[connectionGesture.size/2]; bx=mid.x-(connectionStartPoint.x+w.x)/2f; by=mid.y-(connectionStartPoint.y+w.y)/2f
-                            } else if(abs(dx)+abs(dy)>1f){
-                                if(abs(dy)>=abs(dx)) by=if(fromSide==ConnectionSide.TOP||fromSide==ConnectionSide.BOTTOM) 0f else dy*0.25f else bx=if(fromSide==ConnectionSide.LEFT||fromSide==ConnectionSide.RIGHT) 0f else dx*0.25f
-                            }
-                            onConnectionRequested?.invoke(source,target.id,fromSide,toSide,bx,by)
+                            val route=routeConnection(start,target,fromSide,toSide,connectionGesture)
+                            onConnectionRequested?.invoke(source,target.id,fromSide,toSide,route)
                         }
                         return true
                     }
@@ -320,7 +435,7 @@ class FlowCanvasView(context: Context) : View(context) {
             val a=document.elements.firstOrNull{it.id==con.fromId}?:return@firstOrNull false
             val b=document.elements.firstOrNull{it.id==con.toId}?:return@firstOrNull false
             val pair=document.connections.filter{(it.fromId==con.fromId&&it.toId==con.toId)||(it.fromId==con.toId&&it.toId==con.fromId)}.sortedBy{it.id}
-            val index=pair.indexOfFirst{it.id==con.id}.coerceAtLeast(0);val autoEndpoints=connectionEndpoints(a,b,index,pair.size);val p1=if(con.fromSide==ConnectionSide.AUTO)autoEndpoints.first else explicitEndpoint(a,con.fromSide);val p2=if(con.toSide==ConnectionSide.AUTO)autoEndpoints.second else explicitEndpoint(b,con.toSide);val path=buildConnectionPath(p1,p2,con.bendX,con.bendY,index);val pm=PathMeasure(path,false);val pos=FloatArray(2);var d=0f;var hit=false
+            val index=pair.indexOfFirst{it.id==con.id}.coerceAtLeast(0);val autoEndpoints=connectionEndpoints(a,b,index,pair.size);val p1=if(con.fromSide==ConnectionSide.AUTO)autoEndpoints.first else explicitEndpoint(a,con.fromSide);val p2=if(con.toSide==ConnectionSide.AUTO)autoEndpoints.second else explicitEndpoint(b,con.toSide);val path=if(con.routePoints.size>=2){val route=con.routePoints.map{PointF(it.x,it.y)}.toMutableList();route[0]=p1;route[route.lastIndex]=p2;buildRoutedPath(route)} else buildConnectionPath(p1,p2,con.bendX,con.bendY,index);val pm=PathMeasure(path,false);val pos=FloatArray(2);var d=0f;var hit=false
             while(d<=pm.length){if(pm.getPosTan(d,pos,null)&&hypot(x-pos[0],y-pos[1])<=threshold){hit=true;break};d+=maxOf(6f,threshold/2f)};hit
         }
     }
