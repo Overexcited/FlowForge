@@ -218,6 +218,7 @@ class MainActivity : Activity() {
 
     private fun showCompactPopup(anchor:View,title:String,items:List<String>,onChoice:(Int)->Unit){
         val dark=canvas.darkMode
+        lateinit var popup: PopupWindow
         val outer=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(8),dp(8),dp(8),dp(8));setBackgroundColor(if(dark)0xff111827.toInt() else Color.WHITE)}
         outer.addView(TextView(this).apply{text=title;textSize=14f;setTypeface(null,android.graphics.Typeface.BOLD);setTextColor(if(dark)Color.WHITE else 0xff172033.toInt());setPadding(dp(10),dp(4),dp(10),dp(8))},LinearLayout.LayoutParams(dp(280),WRAP_CONTENT))
         val scroll=ScrollView(this).apply{isFillViewport=true}
@@ -231,13 +232,13 @@ class MainActivity : Activity() {
         }
         scroll.addView(listBox)
         outer.addView(scroll,LinearLayout.LayoutParams(WRAP_CONTENT,dp(420)))
-        lateinit var popup: PopupWindow
         popup=PopupWindow(outer,WRAP_CONTENT,WRAP_CONTENT,true).apply{setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));elevation=dp(10).toFloat();isOutsideTouchable=true}
         popup.showAsDropDown(anchor,-dp(236),dp(2))
     }
 
     private fun showCenteredCompactPopup(title:String,items:List<String>,onChoice:(Int)->Unit){
         val dark=canvas.darkMode
+        lateinit var popup: PopupWindow
         val outer=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(8),dp(8),dp(8),dp(8));setBackgroundColor(if(dark)0xff111827.toInt() else Color.WHITE)}
         outer.addView(TextView(this).apply{text=title;textSize=14f;setTypeface(null,android.graphics.Typeface.BOLD);setTextColor(if(dark)Color.WHITE else 0xff172033.toInt());setPadding(dp(10),dp(4),dp(10),dp(8))},LinearLayout.LayoutParams(dp(280),WRAP_CONTENT))
         items.forEachIndexed{index,label->
@@ -247,7 +248,6 @@ class MainActivity : Activity() {
                 setOnClickListener{popup.dismiss();onChoice(index)}
             },LinearLayout.LayoutParams(dp(280),dp(48)).apply{setMargins(0,dp(2),0,dp(2))})
         }
-        lateinit var popup:PopupWindow
         popup=PopupWindow(outer,WRAP_CONTENT,WRAP_CONTENT,true).apply{setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));elevation=dp(10).toFloat();isOutsideTouchable=true}
         popup.showAtLocation(window.decorView,Gravity.CENTER,0,0)
     }
