@@ -17,6 +17,7 @@ import com.flowforge.app.mermaid.Mermaid
 import com.flowforge.app.model.*
 import com.flowforge.app.templates.Templates
 import com.flowforge.app.ui.FlowCanvasView
+import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 import java.util.Base64
@@ -370,7 +371,7 @@ class MainActivity : Activity() {
         fun edit(initial:String,hintText:String,minLines:Int=1)=EditText(this).apply{setText(initial);hint=hintText;if(minLines>1)this.minLines=minLines;setTextColor(fieldText);setHintTextColor(fieldHint);if(android.os.Build.VERSION.SDK_INT>=21)backgroundTintList=android.content.res.ColorStateList.valueOf(if(dark)0xff64748b.toInt() else 0xff94a3b8.toInt())}
         val label=edit(e.label,"")
         val notes=edit(e.notes,"Metadata / notes",3)
-        val shapeEntries=listOf<ShapeType?>(
+        val shapeEntries=listOf(
             ShapeType.RECTANGLE, ShapeType.ROUNDED, ShapeType.EXTRA_ROUNDED,
             ShapeType.OVAL, ShapeType.TRIANGLE, ShapeType.STAR, ShapeType.CLOUD,
             ShapeType.TRAPEZOID_TOP_SHORT, ShapeType.TRAPEZOID_BOTTOM_SHORT,
@@ -388,7 +389,7 @@ class MainActivity : Activity() {
                 override fun isEnabled(position:Int)=true
                 override fun getView(position:Int,convertView:View?,parent:ViewGroup):View{return super.getView(position,convertView,parent).apply{setBackgroundColor(if(dark)0xff1e293b.toInt() else Color.WHITE);(this as? TextView)?.apply{setTextColor(if(dark)Color.WHITE else 0xff172033.toInt());setPadding(dp(10),dp(8),dp(10),dp(8))}}}
                 override fun getDropDownView(position:Int,convertView:View?,parent:ViewGroup):View{return super.getDropDownView(position,convertView,parent).apply{setBackgroundColor(if(dark)0xff1e293b.toInt() else Color.WHITE);(this as? TextView)?.apply{setTextColor(if(dark)Color.WHITE else 0xff172033.toInt());setPadding(dp(14),dp(10),dp(14),dp(10));alpha=1f}}}
-            };setSelection(if(e.customPoints.size>=3) shapeEntries.size else shapeEntries.indexOfFirst{it==e.shape}.coerceAtLeast(0));setBackgroundColor(if(dark)0xff1e293b.toInt() else 0xfff1f5f9.toInt())
+            };setSelection(if(e.customPoints.size>=3) shapeEntries.size else shapeEntries.indexOf(e.shape).coerceAtLeast(0));setBackgroundColor(if(dark)0xff1e293b.toInt() else 0xfff1f5f9.toInt())
         }
         box.addView(editorLabel("Label"));box.addView(label)
         box.addView(editorLabel("Label Color"));box.addView(labelColorSpinner)
