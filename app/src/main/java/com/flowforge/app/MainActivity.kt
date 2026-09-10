@@ -7,33 +7,43 @@ import android.graphics.*
 import android.graphics.pdf.PdfDocument
 import android.net.Uri
 import android.os.Bundle
+import android.provider.OpenableColumns
+import android.text.format.DateFormat
 import android.view.*
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.widget.*
+import android.graphics.drawable.GradientDrawable
 import com.flowforge.app.mermaid.Mermaid
 import com.flowforge.app.model.*
 import com.flowforge.app.templates.Templates
 import com.flowforge.app.ui.FlowCanvasView
 import kotlin.math.min
 import kotlin.math.roundToInt
+import java.util.Base64
+import java.util.Date
 
 class MainActivity : Activity() {
     private lateinit var canvas: FlowCanvasView
     private lateinit var prefs: SharedPreferences
     private lateinit var assets: AssetStore
-    private val history = HistoryManager(2000)
+    private var history = HistoryManager(2000)
     private var doc = FlowDocument()
     private var status: TextView? = null
     private var contextBar: LinearLayout? = null
     private var contextScroll: HorizontalScrollView? = null
     private var undoButton: Button? = null
     private var redoButton: Button? = null
+    private var addButton: Button? = null
     private var pendingText = ""
+    private var documentName = "Untitled"
+    private var documentUri: Uri? = null
+    private var documentDirty = false
+    private var pendingAfterSave:(()->Unit)? = null
 
     companion object {
         private const val SAVE_JSON = 10; private const val SAVE_MERMAID = 11
         private const val OPEN_JSON = 12; private const val OPEN_MERMAID = 13
-        private const val SAVE_PDF = 14; private const val SAVE_IMAGE = 15
+        private const val SAVE_PDF = 14; private const val SAVE_IMAGE = 15; private const val SAVE_JSON_AS = 16
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -75,7 +85,7 @@ class MainActivity : Activity() {
         }, LinearLayout.LayoutParams(0, dp(52), 1f))
         top.addView(iconButton("↶", "Undo") { undo() }.also { undoButton = it })
         top.addView(iconButton("↷", "Redo") { redo() }.also { redoButton = it })
-        top.addView(iconButton("＋", "Add") { addMenu() })
+        top.addView(iconButton("＋", "Add") { addMenu() }.also { addButton = it })
         root.addView(top, LinearLayout.LayoutParams(-1, dp(62)))
 
         status = TextView(this).apply {
@@ -102,11 +112,11 @@ class MainActivity : Activity() {
         canvas.onConnectionCancelled = { updateUi() }
         canvas.onMoveFinished = { e, oldX, oldY ->
             val before=doc.deepCopy(); before.elements.firstOrNull{it.id==e.id}?.apply{x=oldX;y=oldY}
-            history.record(before,doc.deepCopy()); updateUi()
+            history.record(before,doc.deepCopy()); documentDirty=true; updateUi()
         }
         canvas.onResizeFinished = { e, oldX, oldY, oldW, oldH ->
             val before=doc.deepCopy(); before.elements.firstOrNull{it.id==e.id}?.apply{x=oldX;y=oldY;width=oldW;height=oldH}
-            history.record(before,doc.deepCopy()); updateUi()
+            history.record(before,doc.deepCopy()); documentDirty=true; updateUi()
         }
         root.addView(canvas, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
@@ -122,14 +132,21 @@ class MainActivity : Activity() {
 
     private fun smallButton(label:String, action:()->Unit) = Button(this).apply {
         text=label; textSize=12f; minHeight=0; minimumHeight=0; setPadding(dp(10),0,dp(10),0); isAllCaps=false
-        setTextColor(if(canvas.darkMode) Color.WHITE else 0xff172033.toInt())
+        val dark=canvas.darkMode
+        setTextColor(if(dark) Color.WHITE else 0xff172033.toInt())
+        background=GradientDrawable().apply{
+            cornerRadius=dp(8).toFloat()
+            setColor(if(dark) 0xff1e293b.toInt() else 0xffe2e8f0.toInt())
+            setStroke(dp(1),if(dark) 0xff475569.toInt() else 0xffcbd5e1.toInt())
+        }
+        stateListAnimator=null
         setOnClickListener{action()}; layoutParams=LinearLayout.LayoutParams(WRAP_CONTENT,dp(46)).apply{setMargins(dp(2),dp(1),dp(2),dp(1))}
     }
 
     private fun updateUi() {
         undoButton?.isEnabled=history.canUndo(); redoButton?.isEnabled=history.canRedo()
         val mode = if (canvas.connectionMode) " • Draw connection: tap/drag from one block to another" else ""
-        status?.text="${doc.elements.size} elements  •  ${doc.connections.size} connections  •  ${if(canvas.snapToGrid)"Snap" else "Free"}$mode"
+        status?.text="${documentName}${if(documentDirty)" • Unsaved" else ""}  •  ${doc.elements.size} elements  •  ${doc.connections.size} connections  •  ${if(canvas.snapToGrid)"Snap" else "Free"}$mode"
         val bar=contextBar ?: return
         val scroll=contextScroll ?: return
         bar.removeAllViews()
@@ -177,17 +194,49 @@ class MainActivity : Activity() {
 
     private fun mainMenu(){
         dialogBuilder().setTitle("FlowForge")
-            .setItems(arrayOf("Fit diagram","Reset zoom / position","Import","Export","Settings")){_,which->when(which){0->canvas.fitContent();1->canvas.resetViewport();2->importMenu();3->exportMenu();4->settings()}}.show()
+            .setItems(arrayOf("Recents","Save","Save As…","Open…","Fit diagram","Reset zoom / position","Import","Export","Settings")){_,which->when(which){
+                0->recents()
+                1->saveCurrent()
+                2->saveAs()
+                3->openDocument()
+                4->canvas.fitContent()
+                5->canvas.resetViewport()
+                6->importMenu()
+                7->exportMenu()
+                8->settings()
+            }}.show()
     }
 
     private fun addMenu(){
-        dialogBuilder().setTitle("Add")
-            .setItems(arrayOf("New canvas","Element","Saved block","Template")){_,which->when(which){
-                0->newDocument()
-                1->addElement()
-                2->assetPicker()
-                3->templates()
-            }}.show()
+        val anchor=addButton ?: return
+        val dark=canvas.darkMode
+        val box=LinearLayout(this).apply{
+            orientation=LinearLayout.VERTICAL
+            setPadding(dp(8),dp(8),dp(8),dp(8))
+            setBackgroundColor(if(dark) 0xff111827.toInt() else Color.WHITE)
+            elevation=dp(8).toFloat()
+        }
+        fun item(label:String, action:()->Unit){
+            box.addView(TextView(this).apply{
+                text=label; textSize=16f; gravity=Gravity.CENTER_VERTICAL
+                setTextColor(if(dark) Color.WHITE else 0xff172033.toInt())
+                setPadding(dp(14),0,dp(14),0)
+                background=GradientDrawable().apply{cornerRadius=dp(7).toFloat();setColor(if(dark)0xff1e293b.toInt() else 0xfff1f5f9.toInt())}
+                setOnClickListener{ (box.tag as? PopupWindow)?.dismiss(); action() }
+            },LinearLayout.LayoutParams(dp(210),dp(48)).apply{setMargins(0,dp(2),0,dp(2))})
+        }
+        item("New canvas"){newDocument()}
+        item("Element"){addElement()}
+        item("Saved block"){assetPicker()}
+        item("Template"){templates()}
+        val popup=PopupWindow(box,WRAP_CONTENT,WRAP_CONTENT,true).apply{
+            setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
+            elevation=dp(8).toFloat()
+            isOutsideTouchable=true
+        }
+        popup.setOnDismissListener { }
+        box.tag=popup
+        popup.showAsDropDown(anchor, -dp(166), dp(2))
     }
     private fun replaceDocument(newDoc: FlowDocument, record:Boolean=true) { if(record)history.record(doc.deepCopy(),newDoc.deepCopy());doc=newDoc;canvas.document=doc;canvas.selectedElementId=null;canvas.selectedConnectionId=null;updateUi() }
     private fun newDocument(){replaceDocument(FlowDocument())}
@@ -274,19 +323,123 @@ class MainActivity : Activity() {
     private fun showNotes(e:FlowElement){dialogBuilder().setTitle("Notes — ${e.label}").setMessage(e.notes.ifBlank{"No notes attached."}).setPositiveButton("Close",null).show()}
     private fun templates(){val built=Templates.all();val names=built.map{"Template • ${it.first}"}.toTypedArray();dialogBuilder().setTitle("Diagram Templates").setItems(names){_,which->replaceDocument(built[which].second())}.setPositiveButton("Close",null).show()}
 
+    private data class RecentDocument(val uri:String,val name:String,val accessed:Long)
+
+    private fun saveCurrentThen(afterSave:()->Unit){
+        if(documentUri==null){ pendingAfterSave=afterSave; saveAs() }
+        else if(saveCurrent()) afterSave()
+    }
+
+    private fun saveCurrent():Boolean{
+        val uri=documentUri ?: run { saveAs(); return false }
+        return runCatching{
+            contentResolver.openOutputStream(uri,"wt")!!.use{it.write(doc.toJson().toByteArray())}
+            documentDirty=false; touchRecent(uri,documentName); toast("Saved $documentName"); true
+        }.getOrElse{toast("Could not save $documentName");false}
+    }
+
+    private fun saveAs(){
+        startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply{
+            type="application/json"; putExtra(Intent.EXTRA_TITLE,if(documentName=="Untitled")"flowchart.flowforge.json" else documentName)
+            addCategory(Intent.CATEGORY_OPENABLE)
+        },SAVE_JSON_AS)
+    }
+
+    private fun openDocument(){
+        if(documentDirty){
+            dialogBuilder().setTitle("Save changes?")
+                .setMessage("\\\"$documentName\\\" has unsaved changes. Save changes before opening another canvas?")
+                .setNegativeButton("Cancel",null).setNeutralButton("Don't Save"){_,_->openDocumentPicker()}
+                .setPositiveButton("Save"){_,_->saveCurrentThen(::openDocumentPicker)}.show()
+        } else openDocumentPicker()
+    }
+
+    private fun openDocumentPicker(){
+        startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply{
+            type="application/json"; putExtra(Intent.EXTRA_MIME_TYPES,arrayOf("application/json","text/*"))
+            addCategory(Intent.CATEGORY_OPENABLE); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+        },OPEN_JSON)
+    }
+
+    private fun recents(){
+        val items=loadRecents()
+        if(items.isEmpty()){dialogBuilder().setTitle("Recents").setMessage("No recent canvases yet.").setPositiveButton("OK",null).show();return}
+        val labels=items.map{"${it.name}\nLast opened: ${DateFormat.format("d MMM yyyy, h:mm a",Date(it.accessed))}"}.toTypedArray()
+        dialogBuilder().setTitle("Recents").setItems(labels){_,which->openRecent(items[which])}.setNegativeButton("Close",null).show()
+    }
+
+    private fun openRecent(recent:RecentDocument){
+        val uri=Uri.parse(recent.uri)
+        if(documentDirty){
+            dialogBuilder().setTitle("Save changes?")
+                .setMessage("\\\"$documentName\\\" has unsaved changes. Save changes before opening \\\"${recent.name}\\\"?")
+                .setNegativeButton("Cancel",null).setNeutralButton("Don't Save"){_,_->loadRecentDocument(uri,recent.name)}
+                .setPositiveButton("Save"){_,_->saveCurrentThen{loadRecentDocument(uri,recent.name)}}.show()
+        } else loadRecentDocument(uri,recent.name)
+    }
+
+    private fun loadRecentDocument(uri:Uri,name:String){
+        runCatching{contentResolver.openInputStream(uri)!!.bufferedReader().use{FlowDocument.fromJson(it.readText())}}
+            .onSuccess{history=HistoryManager(2000);doc=it;canvas.document=doc;canvas.selectedElementId=null;canvas.selectedConnectionId=null;documentName=name;documentUri=uri;documentDirty=false;touchRecent(uri,name);canvas.invalidate();updateUi()}
+            .onFailure{toast("Could not open $name")}
+    }
+
+    private fun loadRecents():List<RecentDocument>{
+        val raw=prefs.getString("recents","") ?: ""
+        return raw.lineSequence().mapNotNull{line->
+            val p=line.split('|'); if(p.size!=3)return@mapNotNull null
+            runCatching{RecentDocument(String(Base64.getDecoder().decode(p[0]),Charsets.UTF_8),String(Base64.getDecoder().decode(p[1]),Charsets.UTF_8),p[2].toLong())}.getOrNull()
+        }.sortedByDescending{it.accessed}.toList()
+    }
+
+    private fun touchRecent(uri:Uri,name:String){
+        val updated=(listOf(RecentDocument(uri.toString(),name,System.currentTimeMillis()))+loadRecents().filterNot{it.uri==uri.toString()}).take(20)
+        val raw=updated.joinToString("\n"){ "${Base64.getEncoder().encodeToString(it.uri.toByteArray(Charsets.UTF_8))}|${Base64.getEncoder().encodeToString(it.name.toByteArray(Charsets.UTF_8))}|${it.accessed}" }
+        prefs.edit().putString("recents",raw).apply()
+    }
+
     private fun exportMenu(){val items=arrayOf("FlowForge JSON","Mermaid","PDF","JPG");dialogBuilder().setTitle("Export").setItems(items){_,w->when(w){0->saveText(doc.toJson(),"application/json","flowchart.flowforge.json",SAVE_JSON);1->saveText(Mermaid.export(doc),"text/plain","flowchart.mmd",SAVE_MERMAID);2->createFile("application/pdf","flowchart.pdf",SAVE_PDF);3->createFile("image/jpeg","flowchart.jpg",SAVE_IMAGE)}}.show()}
     private fun importMenu(){dialogBuilder().setTitle("Import").setItems(arrayOf("FlowForge JSON","Mermaid")){_,w->openFile(if(w==0)arrayOf("application/json","text/*") else arrayOf("text/*"),if(w==0)OPEN_JSON else OPEN_MERMAID)}.show()}
     private fun saveText(text:String,mime:String,name:String,request:Int){pendingText=text;startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply{type=mime;putExtra(Intent.EXTRA_TITLE,name)},request)}
     private fun createFile(mime:String,name:String,request:Int){startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply{type=mime;putExtra(Intent.EXTRA_TITLE,name)},request)}
     private fun openFile(types:Array<String>,request:Int){startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply{type=types.first();putExtra(Intent.EXTRA_MIME_TYPES,types);addCategory(Intent.CATEGORY_OPENABLE)},request)}
-    override fun onActivityResult(requestCode:Int,resultCode:Int,data:Intent?){super.onActivityResult(requestCode,resultCode,data);if(resultCode!=RESULT_OK||data?.data==null)return;val uri=data.data!!;when(requestCode){SAVE_JSON,SAVE_MERMAID->contentResolver.openOutputStream(uri)?.use{it.write(pendingText.toByteArray())};OPEN_JSON->importJson(uri);OPEN_MERMAID->importMermaid(uri);SAVE_PDF->exportPdf(uri);SAVE_IMAGE->exportJpg(uri)}}
-    private fun importJson(uri:Uri){runCatching{contentResolver.openInputStream(uri)!!.bufferedReader().use{FlowDocument.fromJson(it.readText())}}.onSuccess{replaceDocument(it)}.onFailure{toast("Could not import FlowForge JSON")}}
-    private fun importMermaid(uri:Uri){runCatching{contentResolver.openInputStream(uri)!!.bufferedReader().use{Mermaid.import(it.readText())}}.onSuccess{replaceDocument(it)}.onFailure{toast("Could not import Mermaid")}}
+    override fun onActivityResult(requestCode:Int,resultCode:Int,data:Intent?){
+        super.onActivityResult(requestCode,resultCode,data)
+        if(resultCode!=RESULT_OK||data?.data==null){if(requestCode==SAVE_JSON_AS)pendingAfterSave=null;return}
+        val uri=data.data!!
+        when(requestCode){
+            SAVE_JSON,SAVE_MERMAID->contentResolver.openOutputStream(uri)?.use{it.write(pendingText.toByteArray())}
+            SAVE_JSON_AS->runCatching{
+                contentResolver.openOutputStream(uri,"wt")!!.use{it.write(doc.toJson().toByteArray())}
+                documentUri=uri; documentName=queryDisplayName(uri) ?: "FlowForge document"; documentDirty=false; touchRecent(uri,documentName); toast("Saved $documentName")
+                pendingAfterSave?.invoke()
+            }.onFailure{toast("Could not save document")}.also{pendingAfterSave=null}
+            OPEN_JSON->importJson(uri); OPEN_MERMAID->importMermaid(uri); SAVE_PDF->exportPdf(uri); SAVE_IMAGE->exportJpg(uri)
+        }
+    }
+
+    private fun queryDisplayName(uri:Uri):String?{
+        contentResolver.query(uri,arrayOf(OpenableColumns.DISPLAY_NAME),null,null,null)?.use{if(it.moveToFirst())return it.getString(0)}
+        return uri.lastPathSegment?.substringAfterLast('/')
+    }
+
+    private fun importJson(uri:Uri){
+        val load={runCatching{contentResolver.openInputStream(uri)!!.bufferedReader().use{FlowDocument.fromJson(it.readText())}}}
+        val go={load().onSuccess{history=HistoryManager(2000);doc=it;canvas.document=doc;canvas.selectedElementId=null;canvas.selectedConnectionId=null;documentName=queryDisplayName(uri) ?: "Imported canvas";documentUri=null;documentDirty=true;canvas.invalidate();updateUi()}.onFailure{toast("Could not import FlowForge JSON")}}
+        if(documentDirty)dialogBuilder().setTitle("Save changes?").setMessage("\\\"$documentName\\\" has unsaved changes. Save before importing?").setNegativeButton("Cancel",null).setNeutralButton("Don't Save"){_,_->go()}.setPositiveButton("Save"){_,_->saveCurrentThen(go)}.show() else go()
+    }
+
+    private fun importMermaid(uri:Uri){
+        val load={runCatching{contentResolver.openInputStream(uri)!!.bufferedReader().use{Mermaid.import(it.readText())}}}
+        val go={load().onSuccess{history=HistoryManager(2000);doc=it;canvas.document=doc;canvas.selectedElementId=null;canvas.selectedConnectionId=null;documentName=queryDisplayName(uri) ?: "Imported Mermaid";documentUri=null;documentDirty=true;canvas.invalidate();updateUi()}.onFailure{toast("Could not import Mermaid")}}
+        if(documentDirty)dialogBuilder().setTitle("Save changes?").setMessage("\\\"$documentName\\\" has unsaved changes. Save before importing?").setNegativeButton("Cancel",null).setNeutralButton("Don't Save"){_,_->go()}.setPositiveButton("Save"){_,_->saveCurrentThen(go)}.show() else go()
+    }
+
     private fun exportPdf(uri:Uri){val old=canvas.gridVisible;canvas.gridVisible=prefs.getBoolean("exportGrid",false);val pdf=PdfDocument();val page=pdf.startPage(PdfDocument.PageInfo.Builder(1600,1000,1).create());drawDocument(page.canvas,1600f,1000f);pdf.finishPage(page);contentResolver.openOutputStream(uri)?.use{pdf.writeTo(it)};pdf.close();canvas.gridVisible=old;canvas.invalidate()}
     private fun exportJpg(uri:Uri){val old=canvas.gridVisible;canvas.gridVisible=prefs.getBoolean("exportGrid",false);val b=Bitmap.createBitmap(1600,1000,Bitmap.Config.ARGB_8888);val c=Canvas(b);c.drawColor(if(canvas.darkMode)0xff0f172a.toInt() else Color.WHITE);drawDocument(c,1600f,1000f);contentResolver.openOutputStream(uri)?.use{b.compress(Bitmap.CompressFormat.JPEG,94,it)};b.recycle();canvas.gridVisible=old;canvas.invalidate()}
     private fun drawDocument(target:Canvas,w:Float,h:Float){if(doc.elements.isEmpty())return;val minX=doc.elements.minOf{it.x};val minY=doc.elements.minOf{it.y};val maxX=doc.elements.maxOf{it.x+it.width};val maxY=doc.elements.maxOf{it.y+it.height};val pad=80f;val sx=w/(maxX-minX+pad*2);val sy=h/(maxY-minY+pad*2);val sc=min(sx,sy).coerceAtMost(2f);target.save();target.translate(w/2f-(minX+maxX)/2f*sc,h/2f-(minY+maxY)/2f*sc);target.scale(sc,sc);canvas.drawContentForExport(target);target.restore()}
-    private fun undo(){history.undo(doc)?.let{doc=it;canvas.document=doc;canvas.selectedElementId=null;canvas.selectedConnectionId=null;canvas.invalidate();updateUi()}}
-    private fun redo(){history.redo(doc)?.let{doc=it;canvas.document=doc;canvas.selectedElementId=null;canvas.selectedConnectionId=null;canvas.invalidate();updateUi()}}
+    private fun undo(){history.undo(doc)?.let{doc=it;canvas.document=doc;canvas.selectedElementId=null;canvas.selectedConnectionId=null;documentDirty=true;canvas.invalidate();updateUi()}}
+    private fun redo(){history.redo(doc)?.let{doc=it;canvas.document=doc;canvas.selectedElementId=null;canvas.selectedConnectionId=null;documentDirty=true;canvas.invalidate();updateUi()}}
 
     private fun dialogBuilder(): AlertDialog.Builder {
         val theme = if (canvas.darkMode) android.R.style.Theme_Material else android.R.style.Theme_Material_Light
@@ -294,17 +447,70 @@ class MainActivity : Activity() {
     }
 
     private fun settings(){
-        val box=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(22,8,22,4)}
-        fun check(text:String,value:Boolean,on:(Boolean)->Unit)=CheckBox(this).apply{this.text=text;isChecked=value;setOnCheckedChangeListener{_,v->on(v)}}
+        val dark=canvas.darkMode
+        val box=LinearLayout(this).apply{
+            orientation=LinearLayout.VERTICAL
+            setPadding(dp(22),dp(8),dp(22),dp(4))
+            setBackgroundColor(if(dark) 0xff0f172a.toInt() else Color.WHITE)
+        }
+        fun check(text:String,value:Boolean,on:(Boolean)->Unit)=CheckBox(this).apply{
+            this.text=text; isChecked=value
+            setTextColor(if(canvas.darkMode) Color.WHITE else 0xff172033.toInt())
+            buttonTintList=if(android.os.Build.VERSION.SDK_INT>=21) android.content.res.ColorStateList.valueOf(if(canvas.darkMode)0xffcbd5e1.toInt() else 0xff334155.toInt()) else null
+            setOnCheckedChangeListener{_,v->on(v)}
+        }
+        fun settingsButton(text:String, action:()->Unit)=Button(this).apply{
+            this.text=text; isAllCaps=false; minHeight=0; minimumHeight=0
+            setTextColor(if(canvas.darkMode)Color.WHITE else 0xff172033.toInt())
+            background=GradientDrawable().apply{
+                cornerRadius=dp(8).toFloat()
+                setColor(if(canvas.darkMode)0xff1e293b.toInt() else 0xfff1f5f9.toInt())
+                setStroke(dp(1),if(canvas.darkMode)0xff475569.toInt() else 0xffcbd5e1.toInt())
+            }
+            setOnClickListener{action()}
+        }
         val grid=check("Show background grid",canvas.gridVisible){canvas.gridVisible=it;prefs.edit().putBoolean("gridVisible",it).apply();canvas.invalidate()}
         val snap=check("Snap elements to grid",canvas.snapToGrid){canvas.snapToGrid=it;prefs.edit().putBoolean("snapToGrid",it).apply();updateUi()}
         val eg=check("Include grid in PDF/JPG export",prefs.getBoolean("exportGrid",false)){prefs.edit().putBoolean("exportGrid",it).apply()}
-        val dark=check("Dark mode",canvas.darkMode){canvas.darkMode=it;prefs.edit().putBoolean("darkMode",it).apply();applyThemeChrome();canvas.invalidate()}
-        val sizes=arrayOf(20f,40f,60f,80f);val spin=Spinner(this).apply{adapter=ArrayAdapter(this@MainActivity,android.R.layout.simple_spinner_dropdown_item,sizes.map{"$it units"});setSelection(sizes.indexOf(canvas.gridSize).coerceAtLeast(0))}
-        box.addView(grid);box.addView(snap);box.addView(eg);box.addView(dark);box.addView(TextView(this).apply{text="Grid spacing";setTextColor(if(canvas.darkMode)Color.WHITE else 0xff172033.toInt());setPadding(0,12,0,2)});box.addView(spin)
-        box.addView(Button(this).apply{text="Fit diagram to screen";setOnClickListener{canvas.fitContent()}});box.addView(Button(this).apply{text="Reset zoom / position";setOnClickListener{canvas.resetViewport()}})
-        box.addView(Button(this).apply{text="Manage Building Blocks";setOnClickListener{manageAssets()}});box.addView(Button(this).apply{text="Clear Building Blocks";setOnClickListener{assets.clear();toast("Building blocks cleared")}})
-        dialogBuilder().setTitle("Settings").setView(box).setPositiveButton("Done"){_,_->canvas.gridSize=sizes[spin.selectedItemPosition];prefs.edit().putFloat("gridSize",canvas.gridSize).apply();canvas.invalidate()}.setNegativeButton("Cancel",null).show()
+        val darkBox=check("Dark mode",canvas.darkMode){
+            canvas.darkMode=it
+            prefs.edit().putBoolean("darkMode",it).apply()
+            applyThemeChrome()
+            canvas.invalidate()
+            updateUi()
+        }
+        val sizes=arrayOf(20f,40f,60f,80f)
+        val spin=Spinner(this).apply{
+            adapter=object: ArrayAdapter<String>(this@MainActivity,android.R.layout.simple_spinner_item,sizes.map{"$it units"}){
+                override fun getView(position:Int,convertView:View?,parent:ViewGroup):View{
+                    return super.getView(position,convertView,parent).apply{
+                        (this as? TextView)?.setTextColor(if(canvas.darkMode)Color.WHITE else 0xff172033.toInt())
+                        setPadding(dp(8),dp(4),dp(8),dp(4))
+                    }
+                }
+                override fun getDropDownView(position:Int,convertView:View?,parent:ViewGroup):View{
+                    return super.getDropDownView(position,convertView,parent).apply{
+                        setBackgroundColor(if(canvas.darkMode)0xff1e293b.toInt() else Color.WHITE)
+                        (this as? TextView)?.setTextColor(if(canvas.darkMode)Color.WHITE else 0xff172033.toInt())
+                    }
+                }
+            }
+            setSelection(sizes.indexOf(canvas.gridSize).coerceAtLeast(0))
+        }
+        val spacing=TextView(this).apply{text="Grid spacing";setTextColor(if(dark)Color.WHITE else 0xff172033.toInt());setPadding(0,dp(12),0,dp(2))}
+        box.addView(grid);box.addView(snap);box.addView(eg);box.addView(darkBox);box.addView(spacing);box.addView(spin)
+        box.addView(settingsButton("Fit diagram to screen"){canvas.fitContent()})
+        box.addView(settingsButton("Reset zoom / position"){canvas.resetViewport()})
+        box.addView(settingsButton("Manage Building Blocks"){manageAssets()})
+        box.addView(settingsButton("Clear Building Blocks"){assets.clear();toast("Building blocks cleared")})
+        val dialog=dialogBuilder().setTitle("Settings").setView(box).setPositiveButton("Done"){_,_->canvas.gridSize=sizes[spin.selectedItemPosition];prefs.edit().putFloat("gridSize",canvas.gridSize).apply();canvas.invalidate()}.setNegativeButton("Cancel",null).create()
+        dialog.setOnShowListener{
+            val buttonColor=if(canvas.darkMode)Color.WHITE else 0xff172033.toInt()
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(buttonColor)
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.setTextColor(buttonColor)
+            dialog.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(if(canvas.darkMode)0xff0f172a.toInt() else Color.WHITE))
+        }
+        dialog.show()
     }
     private fun applyThemeChrome(){
         val dark=canvas.darkMode
@@ -323,6 +529,18 @@ class MainActivity : Activity() {
                     content.getChildAt(0).setBackgroundColor(if(dark)0xff020617.toInt() else 0xff0f172a.toInt())
                     content.getChildAt(1).setBackgroundColor(if(dark)Color.BLACK else 0xffe2e8f0.toInt())
                     content.getChildAt(2).setBackgroundColor(if(dark)0xff111827.toInt() else 0xfff8fafc.toInt())
+                    val ctx=content.getChildAt(2)
+                    fun recolor(v:View){
+                        when(v){
+                            is TextView -> v.setTextColor(if(dark)Color.WHITE else 0xff172033.toInt())
+                            is Button -> {
+                                v.setTextColor(if(dark)Color.WHITE else 0xff172033.toInt())
+                                v.background=GradientDrawable().apply{cornerRadius=dp(8).toFloat();setColor(if(dark)0xff1e293b.toInt() else 0xffe2e8f0.toInt());setStroke(dp(1),if(dark)0xff475569.toInt() else 0xffcbd5e1.toInt())}
+                            }
+                        }
+                        if(v is ViewGroup) for(i in 0 until v.childCount) recolor(v.getChildAt(i))
+                    }
+                    recolor(ctx)
                 }
             }
         }
