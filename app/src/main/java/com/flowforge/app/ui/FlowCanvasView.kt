@@ -83,14 +83,39 @@ class FlowCanvasView(context: Context) : View(context) {
     }
     private fun outlineWidth(e:FlowElement)=when(e.outlineThickness){LineThickness.DEFAULT->2.5f;LineThickness.MEDIUM->7.5f;LineThickness.LARGE->15f}
     private fun connectionWidth(c:FlowConnection)=when(c.thickness){LineThickness.DEFAULT->3.5f;LineThickness.MEDIUM->7f;LineThickness.LARGE->14f}
+    private fun textSizeValue(size: TextSize): Float = when(size){
+        TextSize.SMALL -> 16f
+        TextSize.NORMAL -> 21f
+        TextSize.MEDIUM -> 25f
+        TextSize.LARGE -> 30f
+        TextSize.EXTRA_LARGE -> 36f
+        TextSize.HUGE -> 44f
+    }
+    private fun textFontFamily(font: TextFont): String = when(font){
+        TextFont.SANS -> "sans-serif"
+        TextFont.SERIF -> "serif"
+        TextFont.MONOSPACE -> "monospace"
+        TextFont.SANS_CONDENSED -> "sans-serif-condensed"
+        TextFont.SANS_LIGHT -> "sans-serif-light"
+    }
+    private fun applyLabelStyle(size: TextSize, bold: Boolean, italic: Boolean, underline: Boolean, font: TextFont){
+        val style = when { bold && italic -> Typeface.BOLD_ITALIC; bold -> Typeface.BOLD; italic -> Typeface.ITALIC; else -> Typeface.NORMAL }
+        textPaint.typeface = Typeface.create(textFontFamily(font), style)
+        textPaint.textSize = textSizeValue(size)
+        textPaint.flags = Paint.ANTI_ALIAS_FLAG or if(underline) Paint.UNDERLINE_TEXT_FLAG else 0
+    }
 
     private fun drawElement(c:Canvas,e:FlowElement){
         val r=RectF(e.x,e.y,e.x+e.width,e.y+e.height)
+        paint.pathEffect=null
         if(e.customPoints.size < 3 && e.fillColor!=null){paint.style=Paint.Style.FILL;paint.color=e.fillColor!!;drawShape(c,e,r)}
         paint.style=Paint.Style.STROKE;paint.strokeWidth=if(e.id==selectedElementId)maxOf(5f,outlineWidth(e)) else outlineWidth(e)
-        paint.color=if(e.id==selectedElementId)0xff2563eb.toInt() else(e.outlineColor?:if(darkMode)0xff94a3b8.toInt() else 0xff334155.toInt());if(e.customPoints.size >= 3) drawCustomShape(c,e,r) else drawShape(c,e,r)
-        textPaint.color=e.labelColor?:if(darkMode)Color.WHITE else 0xff172033.toInt();textPaint.textSize=25f
-        val maxChars=max(8,(e.width/15f).toInt());val lines=wrap(e.label,maxChars).take(4);val lineH=29f;val base=e.y+e.height/2f-(lines.size-1)*lineH/2f+9f
+        paint.color=if(e.id==selectedElementId)0xff2563eb.toInt() else(e.outlineColor?:if(darkMode)0xff94a3b8.toInt() else 0xff334155.toInt())
+        paint.pathEffect=when(e.outlineLineStyle){LineStyle.DASHED->DashPathEffect(floatArrayOf(18f,12f),0f);LineStyle.DOTTED->DashPathEffect(floatArrayOf(4f,10f),0f);else->null}
+        if(e.customPoints.size >= 3) drawCustomShape(c,e,r) else drawShape(c,e,r)
+        paint.pathEffect=null
+        textPaint.color=e.labelColor?:if(darkMode)Color.WHITE else 0xff172033.toInt();applyLabelStyle(e.labelTextSize,e.labelBold,e.labelItalic,e.labelUnderline,e.labelFont)
+        val size=textSizeValue(e.labelTextSize);val maxChars=max(6,(e.width/(size*.60f)).toInt());val lines=wrap(e.label,maxChars).take(4);val lineH=size*1.16f;val base=e.y+e.height/2f-(lines.size-1)*lineH/2f+size*.36f
         lines.forEachIndexed{i,s->c.drawText(s,e.x+e.width/2f-textPaint.measureText(s)/2f,base+i*lineH,textPaint)}
         if(e.notes.isNotBlank())drawBadge(c,e.x+e.width-14f,e.y+14f,true)
     }
@@ -155,7 +180,7 @@ class FlowCanvasView(context: Context) : View(context) {
         p.lineTo(r.left+w*.16f,base);p.close();return p
     }
     private fun drawSelection(c:Canvas,e:FlowElement){val r=RectF(e.x,e.y,e.x+e.width,e.y+e.height);paint.style=Paint.Style.STROKE;paint.strokeWidth=2f;paint.color=0xff2563eb.toInt();c.drawRect(r,paint);if(!connectionMode&&!customShapeMode){val hs=10f;handlePoints(r).forEach{p->paint.style=Paint.Style.FILL;paint.color=Color.WHITE;c.drawCircle(p.x,p.y,hs,paint);paint.style=Paint.Style.STROKE;paint.color=0xff2563eb.toInt();paint.strokeWidth=3f;c.drawCircle(p.x,p.y,hs,paint)}};if(e.notes.isNotBlank())lastNotesButton=RectF(r.right-30f,r.top-30f,r.right+2f,r.top+2f)else lastNotesButton.setEmpty()}
-    private fun drawBadge(c:Canvas,x:Float,y:Float,info:Boolean){paint.style=Paint.Style.FILL;paint.color=0xfff59e0b.toInt();c.drawCircle(x,y,10f,paint);textPaint.color=Color.WHITE;textPaint.textSize=13f;c.drawText(if(info)"i" else "!",x-2.3f,y+4.5f,textPaint)}
+    private fun drawBadge(c:Canvas,x:Float,y:Float,info:Boolean){paint.style=Paint.Style.FILL;paint.color=0xfff59e0b.toInt();c.drawCircle(x,y,10f,paint);textPaint.color=Color.WHITE;textPaint.typeface=Typeface.DEFAULT;textPaint.textSize=13f;textPaint.flags=Paint.ANTI_ALIAS_FLAG;c.drawText(if(info)"i" else "!",x-2.3f,y+4.5f,textPaint)}
 
     private fun drawConnection(c:Canvas,con:FlowConnection){
         val a=document.elements.firstOrNull{it.id==con.fromId}?:return;val b=document.elements.firstOrNull{it.id==con.toId}?:return
@@ -165,7 +190,7 @@ class FlowCanvasView(context: Context) : View(context) {
         paint.style=Paint.Style.STROKE;paint.strokeWidth=if(con.id==selectedConnectionId)7f else connectionWidth(con);paint.color=if(con.id==selectedConnectionId)0xff2563eb.toInt() else con.color
         paint.pathEffect=when(con.lineStyle){LineStyle.DASHED->DashPathEffect(floatArrayOf(18f,12f),0f);LineStyle.DOTTED->DashPathEffect(floatArrayOf(4f,10f),0f);else->null};c.drawPath(path,paint);paint.pathEffect=null
         if(con.arrowType==ArrowType.REPEATED)drawRepeatedArrows(c,path)else if(con.arrowType!=ArrowType.NONE)drawConnectionArrows(c,path,con.arrowType)
-        val mid=pathMidpoint(path);if(con.label.isNotBlank()){textPaint.color=con.labelColor?:if(darkMode)Color.WHITE else 0xff334155.toInt();textPaint.textSize=21f;c.drawText(con.label,mid.x+6,mid.y-6,textPaint)};if(con.notes.isNotBlank())drawBadge(c,mid.x+12,mid.y-18,false)
+        val mid=pathMidpoint(path);if(con.label.isNotBlank()){textPaint.color=con.labelColor?:if(darkMode)Color.WHITE else 0xff334155.toInt();applyLabelStyle(con.labelTextSize,con.labelBold,con.labelItalic,con.labelUnderline,con.labelFont);val size=textSizeValue(con.labelTextSize);c.drawText(con.label,mid.x+6,mid.y-size*.28f,textPaint)};if(con.notes.isNotBlank())drawBadge(c,mid.x+12,mid.y-18,false)
     }
     private fun preferredSide(a:FlowElement,b:FlowElement):ConnectionSide{val dx=b.x+b.width/2f-(a.x+a.width/2f);val dy=b.y+b.height/2f-(a.y+a.height/2f);return if(abs(dy)>=abs(dx)){if(dy>=0)ConnectionSide.BOTTOM else ConnectionSide.TOP}else{if(dx>=0)ConnectionSide.RIGHT else ConnectionSide.LEFT}}
     private fun distributedSide(preferred:ConnectionSide,index:Int):ConnectionSide{if(preferred==ConnectionSide.AUTO)return ConnectionSide.AUTO;val order=when(preferred){ConnectionSide.TOP->arrayOf(ConnectionSide.TOP,ConnectionSide.RIGHT,ConnectionSide.LEFT,ConnectionSide.BOTTOM);ConnectionSide.RIGHT->arrayOf(ConnectionSide.RIGHT,ConnectionSide.BOTTOM,ConnectionSide.TOP,ConnectionSide.LEFT);ConnectionSide.BOTTOM->arrayOf(ConnectionSide.BOTTOM,ConnectionSide.LEFT,ConnectionSide.RIGHT,ConnectionSide.TOP);ConnectionSide.LEFT->arrayOf(ConnectionSide.LEFT,ConnectionSide.TOP,ConnectionSide.BOTTOM,ConnectionSide.RIGHT);else->arrayOf(ConnectionSide.TOP)};return order[index%order.size]}

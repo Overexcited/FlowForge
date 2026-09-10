@@ -9,6 +9,8 @@ enum class ShapeType { RECTANGLE, ROUNDED, EXTRA_ROUNDED, OVAL, TRIANGLE, STAR, 
 enum class ArrowType { NONE, END, BOTH, CIRCLE, DIAMOND, REPEATED }
 enum class LineStyle { SOLID, DASHED, DOTTED }
 enum class LineThickness { DEFAULT, MEDIUM, LARGE }
+enum class TextSize { SMALL, NORMAL, MEDIUM, LARGE, EXTRA_LARGE, HUGE }
+enum class TextFont { SANS, SERIF, MONOSPACE, SANS_CONDENSED, SANS_LIGHT }
 enum class ConnectionSide { AUTO, TOP, RIGHT, BOTTOM, LEFT }
 
 fun defaultShapeFor(type: ElementType): ShapeType = when (type) {
@@ -32,9 +34,15 @@ data class FlowElement(
     var label: String = "Process",
     var notes: String = "",
     var outlineThickness: LineThickness = LineThickness.DEFAULT,
+    var outlineLineStyle: LineStyle = LineStyle.SOLID,
     var fillColor: Int? = null,
     var outlineColor: Int? = null,
     var labelColor: Int? = null,
+    var labelTextSize: TextSize = TextSize.MEDIUM,
+    var labelBold: Boolean = false,
+    var labelItalic: Boolean = false,
+    var labelUnderline: Boolean = false,
+    var labelFont: TextFont = TextFont.SANS,
     var customPoints: MutableList<ConnectionPoint> = mutableListOf()
 ) {
     companion object {
@@ -59,7 +67,12 @@ data class FlowConnection(
     var bendY: Float = 0f,
     var routePoints: MutableList<ConnectionPoint> = mutableListOf(),
     var notes: String = "",
-    var labelColor: Int? = null
+    var labelColor: Int? = null,
+    var labelTextSize: TextSize = TextSize.NORMAL,
+    var labelBold: Boolean = false,
+    var labelItalic: Boolean = false,
+    var labelUnderline: Boolean = false,
+    var labelFont: TextFont = TextFont.SANS
 )
 
 data class FlowDocument(
@@ -72,7 +85,7 @@ data class FlowDocument(
     fun toJson(): String {
         val o = JSONObject()
         o.put("format", "flowforge")
-        o.put("version", 6)
+        o.put("version", 8)
         o.put("title", title)
         val es = JSONArray()
         elements.forEach { e ->
@@ -81,9 +94,15 @@ data class FlowDocument(
                 put("x", e.x); put("y", e.y); put("width", e.width); put("height", e.height)
                 put("label", e.label); put("notes", e.notes)
                 put("outlineThickness", e.outlineThickness.name)
+                put("outlineStyle", e.outlineLineStyle.name)
                 if (e.outlineColor == null) put("outlineColor", JSONObject.NULL) else put("outlineColor", e.outlineColor)
                 if (e.fillColor == null) put("fillColor", JSONObject.NULL) else put("fillColor", e.fillColor)
                 if (e.labelColor == null) put("labelColor", JSONObject.NULL) else put("labelColor", e.labelColor)
+                put("labelTextSize", e.labelTextSize.name)
+                put("labelBold", e.labelBold)
+                put("labelItalic", e.labelItalic)
+                put("labelUnderline", e.labelUnderline)
+                put("labelFont", e.labelFont.name)
                 val custom = JSONArray(); e.customPoints.forEach { p -> custom.put(JSONObject().apply { put("x", p.x); put("y", p.y) }) }; put("customPoints", custom)
             })
         }
@@ -99,6 +118,11 @@ data class FlowDocument(
                 put("route", route)
                 put("notes", c.notes)
                 if (c.labelColor == null) put("labelColor", JSONObject.NULL) else put("labelColor", c.labelColor)
+                put("labelTextSize", c.labelTextSize.name)
+                put("labelBold", c.labelBold)
+                put("labelItalic", c.labelItalic)
+                put("labelUnderline", c.labelUnderline)
+                put("labelFont", c.labelFont.name)
             })
         }
         o.put("elements", es); o.put("connections", cs)
@@ -115,15 +139,19 @@ data class FlowDocument(
                 val type = runCatching { ElementType.valueOf(e.optString("type")) }.getOrDefault(ElementType.PROCESS)
                 val shape = runCatching { ShapeType.valueOf(e.optString("shape")) }.getOrDefault(defaultShapeFor(type))
                 val thickness = runCatching { LineThickness.valueOf(e.optString("outlineThickness")) }.getOrDefault(LineThickness.DEFAULT)
+                val outlineStyle = runCatching { LineStyle.valueOf(e.optString("outlineStyle")) }.getOrDefault(LineStyle.SOLID)
                 val fill = if (e.has("fillColor") && !e.isNull("fillColor")) e.optInt("fillColor") else null
                 val outlineColor = if (e.has("outlineColor") && !e.isNull("outlineColor")) e.optInt("outlineColor") else null
                 val labelColor = if (e.has("labelColor") && !e.isNull("labelColor")) e.optInt("labelColor") else null
+                val labelTextSize = runCatching { TextSize.valueOf(e.optString("labelTextSize")) }.getOrDefault(TextSize.MEDIUM)
+                val labelFont = runCatching { TextFont.valueOf(e.optString("labelFont")) }.getOrDefault(TextFont.SANS)
                 d.elements += FlowElement(
                     id = e.optString("id", UUID.randomUUID().toString()), type = type, shape = shape,
                     x = e.optDouble("x", 300.0).toFloat(), y = e.optDouble("y", 300.0).toFloat(),
                     width = e.optDouble("width", 180.0).toFloat(), height = e.optDouble("height", 90.0).toFloat(),
                     label = e.optString("label", "Process"), notes = e.optString("notes", ""),
-                    outlineThickness = thickness, fillColor = fill, outlineColor = outlineColor, labelColor = labelColor,
+                    outlineThickness = thickness, outlineLineStyle = outlineStyle, fillColor = fill, outlineColor = outlineColor, labelColor = labelColor,
+                    labelTextSize = labelTextSize, labelBold = e.optBoolean("labelBold", false), labelItalic = e.optBoolean("labelItalic", false), labelUnderline = e.optBoolean("labelUnderline", false), labelFont = labelFont,
                     customPoints = mutableListOf<ConnectionPoint>().apply {
                         val pts = e.optJSONArray("customPoints") ?: JSONArray()
                         for (j in 0 until pts.length()) { val p = pts.getJSONObject(j); add(ConnectionPoint(p.optDouble("x", 0.0).toFloat(), p.optDouble("y", 0.0).toFloat())) }
@@ -133,6 +161,8 @@ data class FlowDocument(
             val cs = o.optJSONArray("connections") ?: JSONArray()
             for (i in 0 until cs.length()) {
                 val c = cs.getJSONObject(i)
+                val labelTextSize = runCatching { TextSize.valueOf(c.optString("labelTextSize")) }.getOrDefault(TextSize.NORMAL)
+                val labelFont = runCatching { TextFont.valueOf(c.optString("labelFont")) }.getOrDefault(TextFont.SANS)
                 d.connections += FlowConnection(
                     id = c.optString("id", UUID.randomUUID().toString()), fromId = c.optString("from"), toId = c.optString("to"),
                     label = c.optString("label", ""),
@@ -151,7 +181,8 @@ data class FlowDocument(
                         }
                     },
                     notes = c.optString("notes", ""),
-                    labelColor = if (c.has("labelColor") && !c.isNull("labelColor")) c.optInt("labelColor") else null
+                    labelColor = if (c.has("labelColor") && !c.isNull("labelColor")) c.optInt("labelColor") else null,
+                    labelTextSize = labelTextSize, labelBold = c.optBoolean("labelBold", false), labelItalic = c.optBoolean("labelItalic", false), labelUnderline = c.optBoolean("labelUnderline", false), labelFont = labelFont
                 )
             }
             return d
