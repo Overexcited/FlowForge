@@ -114,6 +114,7 @@ class MainActivity : Activity() {
         canvas.onNotesTap = { showNotes(it) }
         canvas.onConnectionRequested = { from, to, fromSide, toSide, route -> createConnection(from, to, fromSide, toSide, route) }
         canvas.onConnectionCancelled = { updateUi() }
+        canvas.onCustomShapeFinished = { points -> applyCustomShape(points) }
         canvas.onMoveFinished = { e, oldX, oldY ->
             val before=doc.deepCopy(); before.elements.firstOrNull{it.id==e.id}?.apply{x=oldX;y=oldY}
             history.record(before,doc.deepCopy()); documentDirty=true; updateUi()
@@ -165,14 +166,19 @@ class MainActivity : Activity() {
         contextBar?.setBackgroundColor(if(canvas.darkMode)0xff111827.toInt() else 0xfff8fafc.toInt())
         contextScroll?.setBackgroundColor(if(canvas.darkMode)0xff111827.toInt() else 0xfff8fafc.toInt())
         status?.setBackgroundColor(if(canvas.darkMode)0xff273449.toInt() else 0xffe2e8f0.toInt())
-        val mode = if (canvas.connectionMode) " • Draw to Connect: tap/drag from one block to another" else ""
+        val mode = when { canvas.connectionMode -> " • Draw to Connect: tap/drag from one block to another"; canvas.customShapeMode -> " • Draw Custom Shape: draw, then tap ✓"; else -> "" }
         status?.text="${documentName}${if(documentDirty)" • Unsaved" else ""}  •  ${doc.elements.size} blocks  •  ${doc.connections.size} connections$mode"
         val bar=contextBar ?: return
         val scroll=contextScroll ?: return
         bar.removeAllViews()
         val e=canvas.selectedElementId?.let{id->doc.elements.firstOrNull{it.id==id}}
         val c=canvas.selectedConnectionId?.let{id->doc.connections.firstOrNull{it.id==id}}
-        if(e!=null && !canvas.connectionMode){
+        if(canvas.customShapeMode){
+            bar.visibility=View.VISIBLE; scroll.visibility=View.VISIBLE
+            bar.addView(TextView(this).apply{text="Draw Custom Shape";textSize=12f;setTextColor(if(canvas.darkMode)Color.WHITE else 0xff172033.toInt());setPadding(4,0,dp(8),0)},LinearLayout.LayoutParams(0,WRAP_CONTENT,1f))
+            bar.addView(smallButton("✓"){canvas.commitCustomShape()})
+            bar.addView(smallButton("Cancel"){canvas.cancelCustomShapeMode()})
+        } else if(e!=null && !canvas.connectionMode){
             bar.visibility=View.VISIBLE; scroll.visibility=View.VISIBLE
             bar.addView(smallButton("Edit"){showElementEditor(e)})
             bar.addView(smallButton("Connect"){canvas.beginConnectionMode()})
@@ -307,7 +313,7 @@ class MainActivity : Activity() {
     }
 
     private fun addElement(){
-        val e=FlowElement(type=ElementType.PROCESS,x=260f+doc.elements.size*35f,y=220f+doc.elements.size*25f,label="")
+        val e=FlowElement(type=ElementType.PROCESS,x=260f+doc.elements.size*35f,y=220f+doc.elements.size*25f,width=270f,height=135f,label="")
         // New elements start as the standard rounded block and can be reshaped later.
         val before=doc.deepCopy(); doc.elements+=e
         canvas.selectedElementId=e.id; canvas.selectedConnectionId=null
@@ -345,6 +351,18 @@ class MainActivity : Activity() {
         updateUi()
     }
 
+    private fun applyCustomShape(points: List<PointF>){
+        val id=canvas.customShapeTargetId ?: return
+        val e=doc.elements.firstOrNull{it.id==id} ?: return
+        if(points.size < 8){ toast("Draw a larger shape first"); updateUi(); return }
+        val before=doc.deepCopy()
+        val minX=points.minOf{it.x}; val maxX=points.maxOf{it.x}; val minY=points.minOf{it.y}; val maxY=points.maxOf{it.y}
+        val w=max(40f,maxX-minX); val h=max(40f,maxY-minY)
+        e.x=minX; e.y=minY; e.width=w; e.height=h
+        e.customPoints=points.map{ConnectionPoint(((it.x-minX)/w).coerceIn(0f,1f),((it.y-minY)/h).coerceIn(0f,1f))}.toMutableList()
+        history.record(before,doc.deepCopy()); documentDirty=true; canvas.finishCustomShapeMode(); canvas.invalidate(); updateUi()
+    }
+
     private fun showElementEditor(e:FlowElement){
         val dark=canvas.darkMode
         val box=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(22),dp(6),dp(22),dp(4));setBackgroundColor(if(dark)0xff0f172a.toInt() else Color.WHITE)}
@@ -352,7 +370,13 @@ class MainActivity : Activity() {
         fun edit(initial:String,hintText:String,minLines:Int=1)=EditText(this).apply{setText(initial);hint=hintText;if(minLines>1)this.minLines=minLines;setTextColor(fieldText);setHintTextColor(fieldHint);if(android.os.Build.VERSION.SDK_INT>=21)backgroundTintList=android.content.res.ColorStateList.valueOf(if(dark)0xff64748b.toInt() else 0xff94a3b8.toInt())}
         val label=edit(e.label,"")
         val notes=edit(e.notes,"Metadata / notes",3)
-        val shapes=ShapeType.values().filter{it!=ShapeType.DOCUMENT && it!=ShapeType.CLOUD}
+        val shapeEntries=listOf<ShapeType?>(
+            ShapeType.RECTANGLE, ShapeType.ROUNDED, ShapeType.EXTRA_ROUNDED,
+            ShapeType.OVAL, ShapeType.TRIANGLE, ShapeType.STAR, ShapeType.CLOUD,
+            ShapeType.TRAPEZOID_TOP_SHORT, ShapeType.TRAPEZOID_BOTTOM_SHORT,
+            ShapeType.CYLINDER, ShapeType.DIAMOND, ShapeType.HEXAGON
+        )
+        val shapeLabels=shapeEntries.map{shapeName(it)} + "Custom"
         val thicknesses=arrayOf(LineThickness.DEFAULT,LineThickness.MEDIUM,LineThickness.LARGE)
         val thicknessSpinner=thicknessSpinner(e.outlineThickness)
         val fillSpinner=fillColorSpinner(e.fillColor)
@@ -360,10 +384,11 @@ class MainActivity : Activity() {
         val labelColorSpinner=labelColorSpinner(e.labelColor)
         fun sentence(value:String)=value.lowercase().replaceFirstChar{it.uppercase()}
         val spinner=Spinner(this).apply{
-            adapter=object:ArrayAdapter<String>(this@MainActivity,android.R.layout.simple_spinner_item,shapes.map{sentence(shapeName(it))}){
+            adapter=object:ArrayAdapter<String>(this@MainActivity,android.R.layout.simple_spinner_item,shapeLabels){
+                override fun isEnabled(position:Int)=true
                 override fun getView(position:Int,convertView:View?,parent:ViewGroup):View{return super.getView(position,convertView,parent).apply{setBackgroundColor(if(dark)0xff1e293b.toInt() else Color.WHITE);(this as? TextView)?.apply{setTextColor(if(dark)Color.WHITE else 0xff172033.toInt());setPadding(dp(10),dp(8),dp(10),dp(8))}}}
-                override fun getDropDownView(position:Int,convertView:View?,parent:ViewGroup):View{return super.getDropDownView(position,convertView,parent).apply{setBackgroundColor(if(dark)0xff1e293b.toInt() else Color.WHITE);(this as? TextView)?.apply{setTextColor(if(dark)Color.WHITE else 0xff172033.toInt());setPadding(dp(14),dp(10),dp(14),dp(10))}}}
-            };setSelection(shapes.indexOf(e.shape).coerceAtLeast(0));setBackgroundColor(if(dark)0xff1e293b.toInt() else 0xfff1f5f9.toInt())
+                override fun getDropDownView(position:Int,convertView:View?,parent:ViewGroup):View{return super.getDropDownView(position,convertView,parent).apply{setBackgroundColor(if(dark)0xff1e293b.toInt() else Color.WHITE);(this as? TextView)?.apply{setTextColor(if(dark)Color.WHITE else 0xff172033.toInt());setPadding(dp(14),dp(10),dp(14),dp(10));alpha=1f}}}
+            };setSelection(if(e.customPoints.size>=3) shapeEntries.size else shapeEntries.indexOfFirst{it==e.shape}.coerceAtLeast(0));setBackgroundColor(if(dark)0xff1e293b.toInt() else 0xfff1f5f9.toInt())
         }
         box.addView(editorLabel("Label"));box.addView(label)
         box.addView(editorLabel("Label Color"));box.addView(labelColorSpinner)
@@ -373,17 +398,22 @@ class MainActivity : Activity() {
         box.addView(editorLabel("Fill colour"));box.addView(fillSpinner)
         box.addView(editorLabel("Notes"));box.addView(notes)
         val dialog=dialogBuilder().setTitle("Edit Block").setView(box).setPositiveButton("Save"){_,_->
-            val before=doc.deepCopy();e.label=label.text.toString();e.notes=notes.text.toString();e.shape=shapes[spinner.selectedItemPosition]
-            e.outlineThickness=thicknesses[thicknessSpinner.selectedItemPosition]
+            val before=doc.deepCopy();e.label=label.text.toString();e.notes=notes.text.toString();e.outlineThickness=thicknesses[thicknessSpinner.selectedItemPosition]
             e.outlineColor=outlineColors().values.elementAt(outlineSpinner.selectedItemPosition)
             e.labelColor=labelColors().values.elementAt(labelColorSpinner.selectedItemPosition)
             e.fillColor=fillColors().values.elementAt(fillSpinner.selectedItemPosition)
-            history.record(before,doc.deepCopy());documentDirty=true;canvas.invalidate();updateUi()
+            if(spinner.selectedItemPosition < shapeEntries.size){
+                e.shape=shapeEntries[spinner.selectedItemPosition]; e.customPoints.clear()
+                history.record(before,doc.deepCopy());documentDirty=true;canvas.invalidate();updateUi()
+            } else {
+                if(before.toJson()!=doc.toJson()){ history.record(before,doc.deepCopy()); documentDirty=true }
+                canvas.beginCustomShapeMode(e.id)
+            }
         }.setNeutralButton("Reset default"){_,_->resetElement(e)}.setNegativeButton("Cancel",null).create()
         dialog.setOnShowListener{val textColor=if(dark)Color.WHITE else 0xff172033.toInt();dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(textColor);dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.setTextColor(textColor);dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.setTextColor(textColor);dialog.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(if(dark)0xff0f172a.toInt() else Color.WHITE))}
         dialog.show()
     }
-    private fun resetElement(e:FlowElement){val before=doc.deepCopy();e.shape=FlowElement.defaultShape(e.type);e.width=180f;e.height=90f;e.outlineThickness=LineThickness.DEFAULT;e.outlineColor=null;e.fillColor=null;e.labelColor=null;history.record(before,doc.deepCopy());canvas.invalidate();updateUi()}
+    private fun resetElement(e:FlowElement){val before=doc.deepCopy();e.shape=FlowElement.defaultShape(e.type);e.width=270f;e.height=135f;e.outlineThickness=LineThickness.DEFAULT;e.outlineColor=null;e.fillColor=null;e.labelColor=null;e.customPoints.clear();history.record(before,doc.deepCopy());canvas.invalidate();updateUi()}
 
     private fun thicknessSpinner(current:LineThickness):Spinner {
         val names=listOf("Default","Medium","Large"); val dark=canvas.darkMode
@@ -916,7 +946,18 @@ class MainActivity : Activity() {
         }
     }
     private fun applyPreferences(){canvas.gridVisible=prefs.getBoolean("gridVisible",true);canvas.snapToGrid=prefs.getBoolean("snapToGrid",true);canvas.gridSize=prefs.getFloat("gridSize",40f);canvas.darkMode=prefs.getBoolean("darkMode",false);canvas.document=doc;applyThemeChrome();updateUi()}
-    private fun shapeName(s:ShapeType)=when(s){ShapeType.RECTANGLE->"Rectangle";ShapeType.ROUNDED->"Rounded rectangle";else->s.name.lowercase().replace('_',' ').replaceFirstChar{it.uppercase()}}
+    private fun shapeName(s:ShapeType)=when(s){
+        ShapeType.RECTANGLE->"Rectangle (sharp edges)"
+        ShapeType.ROUNDED->"Rectangle (round edges)"
+        ShapeType.EXTRA_ROUNDED->"Rectangle (extra round edges)"
+        ShapeType.OVAL->"Oval"
+        ShapeType.TRIANGLE->"Triangle"
+        ShapeType.STAR->"Star"
+        ShapeType.CLOUD->"Cloud"
+        ShapeType.TRAPEZOID_TOP_SHORT->"Trapezoid (shorter top)"
+        ShapeType.TRAPEZOID_BOTTOM_SHORT->"Trapezoid (shorter bottom)"
+        else->s.name.lowercase().replace('_',' ').replaceFirstChar{it.uppercase()}
+    }
     private fun dp(v:Int)= (v * resources.displayMetrics.density).roundToInt()
     private fun toast(s:String)=Toast.makeText(this,s,Toast.LENGTH_SHORT).show()
 }

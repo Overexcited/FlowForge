@@ -5,7 +5,7 @@ import org.json.JSONObject
 import java.util.UUID
 
 enum class ElementType { PROCESS, DECISION, TERMINAL, DATA, SERVER, TEXT, NOTE }
-enum class ShapeType { RECTANGLE, ROUNDED, DIAMOND, OVAL, PARALLELOGRAM, CYLINDER, DOCUMENT, HEXAGON, CLOUD, CIRCLE }
+enum class ShapeType { RECTANGLE, ROUNDED, EXTRA_ROUNDED, OVAL, TRIANGLE, STAR, CLOUD, TRAPEZOID_TOP_SHORT, TRAPEZOID_BOTTOM_SHORT, DIAMOND, PARALLELOGRAM, CYLINDER, DOCUMENT, HEXAGON, CIRCLE }
 enum class ArrowType { NONE, END, BOTH, CIRCLE, DIAMOND, REPEATED }
 enum class LineStyle { SOLID, DASHED, DOTTED }
 enum class LineThickness { DEFAULT, MEDIUM, LARGE }
@@ -27,14 +27,15 @@ data class FlowElement(
     var shape: ShapeType = defaultShapeFor(type),
     var x: Float = 300f,
     var y: Float = 300f,
-    var width: Float = 180f,
-    var height: Float = 90f,
+    var width: Float = 270f,
+    var height: Float = 135f,
     var label: String = "Process",
     var notes: String = "",
     var outlineThickness: LineThickness = LineThickness.DEFAULT,
     var fillColor: Int? = null,
     var outlineColor: Int? = null,
-    var labelColor: Int? = null
+    var labelColor: Int? = null,
+    var customPoints: MutableList<ConnectionPoint> = mutableListOf()
 ) {
     companion object {
         fun defaultShape(type: ElementType): ShapeType = defaultShapeFor(type)
@@ -71,7 +72,7 @@ data class FlowDocument(
     fun toJson(): String {
         val o = JSONObject()
         o.put("format", "flowforge")
-        o.put("version", 5)
+        o.put("version", 6)
         o.put("title", title)
         val es = JSONArray()
         elements.forEach { e ->
@@ -83,6 +84,7 @@ data class FlowDocument(
                 if (e.outlineColor == null) put("outlineColor", JSONObject.NULL) else put("outlineColor", e.outlineColor)
                 if (e.fillColor == null) put("fillColor", JSONObject.NULL) else put("fillColor", e.fillColor)
                 if (e.labelColor == null) put("labelColor", JSONObject.NULL) else put("labelColor", e.labelColor)
+                val custom = JSONArray(); e.customPoints.forEach { p -> custom.put(JSONObject().apply { put("x", p.x); put("y", p.y) }) }; put("customPoints", custom)
             })
         }
         val cs = JSONArray()
@@ -121,7 +123,11 @@ data class FlowDocument(
                     x = e.optDouble("x", 300.0).toFloat(), y = e.optDouble("y", 300.0).toFloat(),
                     width = e.optDouble("width", 180.0).toFloat(), height = e.optDouble("height", 90.0).toFloat(),
                     label = e.optString("label", "Process"), notes = e.optString("notes", ""),
-                    outlineThickness = thickness, fillColor = fill, outlineColor = outlineColor, labelColor = labelColor
+                    outlineThickness = thickness, fillColor = fill, outlineColor = outlineColor, labelColor = labelColor,
+                    customPoints = mutableListOf<ConnectionPoint>().apply {
+                        val pts = e.optJSONArray("customPoints") ?: JSONArray()
+                        for (j in 0 until pts.length()) { val p = pts.getJSONObject(j); add(ConnectionPoint(p.optDouble("x", 0.0).toFloat(), p.optDouble("y", 0.0).toFloat())) }
+                    }
                 )
             }
             val cs = o.optJSONArray("connections") ?: JSONArray()

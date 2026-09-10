@@ -17,6 +17,7 @@ class FlowCanvasView(context: Context) : View(context) {
     var onNotesTap: ((FlowElement) -> Unit)? = null
     var onConnectionRequested: ((String, String, ConnectionSide, ConnectionSide, List<PointF>) -> Unit)? = null
     var onConnectionCancelled: (() -> Unit)? = null
+    var onCustomShapeFinished: ((List<PointF>) -> Unit)? = null
     var onMoveFinished: ((FlowElement, Float, Float) -> Unit)? = null
     var onResizeFinished: ((FlowElement, Float, Float, Float, Float) -> Unit)? = null
     var gridVisible = true
@@ -25,10 +26,15 @@ class FlowCanvasView(context: Context) : View(context) {
     var darkMode = false
     var connectionMode = false
         private set
+    var customShapeMode = false
+        private set
+    var customShapeTargetId: String? = null
+        private set
     private var connectionStartId: String? = null
     private var connectionPreview = PointF()
     private var connectionStartPoint = PointF()
     private val connectionGesture = mutableListOf<PointF>()
+    private val customGesture = mutableListOf<PointF>()
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = Typeface.DEFAULT }
@@ -65,6 +71,7 @@ class FlowCanvasView(context: Context) : View(context) {
         document.connections.forEach { drawConnection(c, it) }
         document.elements.forEach { drawElement(c, it) }
         if (connectionMode && connectionStartId != null) drawConnectionPreview(c)
+        if (customShapeMode && customGesture.size > 1) drawCustomPreview(c)
         if (includeSelection) selectedElement()?.let { drawSelection(c, it) }
     }
     private fun drawGrid(c: Canvas) {
@@ -79,26 +86,75 @@ class FlowCanvasView(context: Context) : View(context) {
 
     private fun drawElement(c:Canvas,e:FlowElement){
         val r=RectF(e.x,e.y,e.x+e.width,e.y+e.height)
-        if(e.fillColor!=null){paint.style=Paint.Style.FILL;paint.color=e.fillColor!!;drawShape(c,e,r)}
+        if(e.customPoints.size < 3 && e.fillColor!=null){paint.style=Paint.Style.FILL;paint.color=e.fillColor!!;drawShape(c,e,r)}
         paint.style=Paint.Style.STROKE;paint.strokeWidth=if(e.id==selectedElementId)maxOf(5f,outlineWidth(e)) else outlineWidth(e)
-        paint.color=if(e.id==selectedElementId)0xff2563eb.toInt() else(e.outlineColor?:if(darkMode)0xff94a3b8.toInt() else 0xff334155.toInt());drawShape(c,e,r)
+        paint.color=if(e.id==selectedElementId)0xff2563eb.toInt() else(e.outlineColor?:if(darkMode)0xff94a3b8.toInt() else 0xff334155.toInt());if(e.customPoints.size >= 3) drawCustomShape(c,e,r) else drawShape(c,e,r)
         textPaint.color=e.labelColor?:if(darkMode)Color.WHITE else 0xff172033.toInt();textPaint.textSize=25f
         val maxChars=max(8,(e.width/15f).toInt());val lines=wrap(e.label,maxChars).take(4);val lineH=29f;val base=e.y+e.height/2f-(lines.size-1)*lineH/2f+9f
         lines.forEachIndexed{i,s->c.drawText(s,e.x+e.width/2f-textPaint.measureText(s)/2f,base+i*lineH,textPaint)}
         if(e.notes.isNotBlank())drawBadge(c,e.x+e.width-14f,e.y+14f,true)
     }
+    private fun drawCustomShape(c:Canvas,e:FlowElement,r:RectF){
+        val pts=e.customPoints
+        if(pts.size<3){ drawShape(c,e,r); return }
+        val path=smoothedClosedPath(pts.map{PointF(r.left+it.x*r.width(), r.top+it.y*r.height())}, 1)
+        if(e.fillColor!=null){ val old=paint.style; paint.style=Paint.Style.FILL; paint.color=e.fillColor!!; c.drawPath(path,paint); paint.style=old }
+        paint.style=Paint.Style.STROKE; c.drawPath(path,paint)
+    }
+    private fun smoothedClosedPath(points:List<PointF>,passes:Int):Path{
+        var cur=points
+        repeat(passes){
+            if(cur.size<3) return@repeat
+            val next=mutableListOf<PointF>()
+            for(i in cur.indices){
+                val a=cur[i]; val b=cur[(i+1)%cur.size]
+                next += PointF(a.x*.75f+b.x*.25f,a.y*.75f+b.y*.25f)
+                next += PointF(a.x*.25f+b.x*.75f,a.y*.25f+b.y*.75f)
+            }
+            cur=next
+        }
+        val p=Path(); val n=cur.size
+        val first=cur[0]; val last=cur[n-1]; p.moveTo((first.x+last.x)/2f,(first.y+last.y)/2f)
+        for(i in cur.indices){ val q=cur[i]; val next=cur[(i+1)%n]; val mid=PointF((q.x+next.x)/2f,(q.y+next.y)/2f); p.quadTo(q.x,q.y,mid.x,mid.y) }
+        p.close(); return p
+    }
+    private fun drawCustomPreview(c:Canvas){
+        if(customGesture.size<2)return
+        paint.style=Paint.Style.STROKE; paint.strokeWidth=3f; paint.color=0xff2563eb.toInt(); paint.pathEffect=null
+        val path=Path(); path.moveTo(customGesture[0].x,customGesture[0].y); for(i in 1 until customGesture.size) path.lineTo(customGesture[i].x,customGesture[i].y); c.drawPath(path,paint)
+    }
+
     private fun drawShape(c:Canvas,e:FlowElement,r:RectF){when(e.shape){
-        ShapeType.RECTANGLE->c.drawRect(r,paint);ShapeType.ROUNDED->c.drawRoundRect(r,18f,18f,paint)
-        ShapeType.DIAMOND->c.drawPath(Path().apply{moveTo(r.centerX(),r.top);lineTo(r.right,r.centerY());lineTo(r.centerX(),r.bottom);lineTo(r.left,r.centerY());close()},paint)
+        ShapeType.RECTANGLE->c.drawRect(r,paint)
+        ShapeType.ROUNDED->c.drawRoundRect(r,18f,18f,paint)
+        ShapeType.EXTRA_ROUNDED->c.drawRoundRect(r,min(r.width(),r.height())*.22f,min(r.width(),r.height())*.22f,paint)
         ShapeType.OVAL->c.drawOval(r,paint)
+        ShapeType.TRIANGLE->c.drawPath(Path().apply{moveTo(r.centerX(),r.top);lineTo(r.right,r.bottom);lineTo(r.left,r.bottom);close()},paint)
+        ShapeType.STAR->c.drawPath(starPath(r),paint)
+        ShapeType.CLOUD->c.drawPath(cloudPath(r),paint)
+        ShapeType.TRAPEZOID_TOP_SHORT->c.drawPath(Path().apply{val inset=r.width()*.22f;moveTo(r.left+inset,r.top);lineTo(r.right-inset,r.top);lineTo(r.right,r.bottom);lineTo(r.left,r.bottom);close()},paint)
+        ShapeType.TRAPEZOID_BOTTOM_SHORT->c.drawPath(Path().apply{val inset=r.width()*.22f;moveTo(r.left,r.top);lineTo(r.right,r.top);lineTo(r.right-inset,r.bottom);lineTo(r.left+inset,r.bottom);close()},paint)
+        ShapeType.DIAMOND->c.drawPath(Path().apply{moveTo(r.centerX(),r.top);lineTo(r.right,r.centerY());lineTo(r.centerX(),r.bottom);lineTo(r.left,r.centerY());close()},paint)
         ShapeType.PARALLELOGRAM->c.drawPath(Path().apply{val s=min(25f,r.width()*.18f);moveTo(r.left+s,r.top);lineTo(r.right,r.top);lineTo(r.right-s,r.bottom);lineTo(r.left,r.bottom);close()},paint)
         ShapeType.CYLINDER->{val ry=min(18f,r.height()/5f);c.drawRoundRect(r,ry,ry,paint)}
         ShapeType.DOCUMENT->c.drawPath(Path().apply{moveTo(r.left,r.top);lineTo(r.right,r.top);lineTo(r.right,r.bottom-14);quadTo(r.centerX(),r.bottom+10,r.left,r.bottom-14);close()},paint)
         ShapeType.HEXAGON->c.drawPath(Path().apply{val s=min(r.width()*.18f,r.height()*.35f);moveTo(r.left+s,r.top);lineTo(r.right-s,r.top);lineTo(r.right,r.centerY());lineTo(r.right-s,r.bottom);lineTo(r.left+s,r.bottom);lineTo(r.left,r.centerY());close()},paint)
-        ShapeType.CLOUD->c.drawPath(Path().apply{addOval(RectF(r.left,r.top+r.height()*.2f,r.left+r.width()*.55f,r.bottom),Path.Direction.CW);addOval(RectF(r.left+r.width()*.28f,r.top,r.right-r.width()*.18f,r.bottom),Path.Direction.CW);addOval(RectF(r.right-r.width()*.48f,r.top+r.height()*.18f,r.right,r.bottom),Path.Direction.CW);close()},paint)
         ShapeType.CIRCLE->c.drawOval(r,paint)
     }}
-    private fun drawSelection(c:Canvas,e:FlowElement){val r=RectF(e.x,e.y,e.x+e.width,e.y+e.height);paint.style=Paint.Style.STROKE;paint.strokeWidth=2f;paint.color=0xff2563eb.toInt();c.drawRect(r,paint);val hs=10f;handlePoints(r).forEach{p->paint.style=Paint.Style.FILL;paint.color=Color.WHITE;c.drawCircle(p.x,p.y,hs,paint);paint.style=Paint.Style.STROKE;paint.color=0xff2563eb.toInt();paint.strokeWidth=3f;c.drawCircle(p.x,p.y,hs,paint)};if(e.notes.isNotBlank())lastNotesButton=RectF(r.right-30f,r.top-30f,r.right+2f,r.top+2f)else lastNotesButton.setEmpty()}
+    private fun starPath(r:RectF):Path{
+        val p=Path();val cx=r.centerX();val cy=r.centerY();val outer=min(r.width(),r.height())*.5f;val inner=outer*.42f
+        for(i in 0 until 10){val a=(-Math.PI/2.0)+(i*Math.PI/5.0);val rad=if(i%2==0)outer else inner;val x=cx+(kotlin.math.cos(a)*rad).toFloat();val y=cy+(kotlin.math.sin(a)*rad).toFloat();if(i==0)p.moveTo(x,y)else p.lineTo(x,y)};p.close();return p
+    }
+    private fun cloudPath(r:RectF):Path{
+        val p=Path();val w=r.width();val h=r.height();val base=r.bottom-h*.16f;
+        p.moveTo(r.left+w*.16f,base);
+        p.cubicTo(r.left+w*.02f,base,r.left+w*.01f,r.top+h*.52f,r.left+w*.18f,r.top+h*.47f);
+        p.cubicTo(r.left+w*.18f,r.top+h*.20f,r.left+w*.40f,r.top+h*.08f,r.left+w*.50f,r.top+h*.28f);
+        p.cubicTo(r.left+w*.64f,r.top+h*.02f,r.right-w*.10f,r.top+h*.15f,r.right-w*.14f,r.top+h*.42f);
+        p.cubicTo(r.right+w*.02f,r.top+h*.46f,r.right-w*.00f,base,r.right-w*.20f,base);
+        p.lineTo(r.left+w*.16f,base);p.close();return p
+    }
+    private fun drawSelection(c:Canvas,e:FlowElement){val r=RectF(e.x,e.y,e.x+e.width,e.y+e.height);paint.style=Paint.Style.STROKE;paint.strokeWidth=2f;paint.color=0xff2563eb.toInt();c.drawRect(r,paint);if(!connectionMode&&!customShapeMode){val hs=10f;handlePoints(r).forEach{p->paint.style=Paint.Style.FILL;paint.color=Color.WHITE;c.drawCircle(p.x,p.y,hs,paint);paint.style=Paint.Style.STROKE;paint.color=0xff2563eb.toInt();paint.strokeWidth=3f;c.drawCircle(p.x,p.y,hs,paint)}};if(e.notes.isNotBlank())lastNotesButton=RectF(r.right-30f,r.top-30f,r.right+2f,r.top+2f)else lastNotesButton.setEmpty()}
     private fun drawBadge(c:Canvas,x:Float,y:Float,info:Boolean){paint.style=Paint.Style.FILL;paint.color=0xfff59e0b.toInt();c.drawCircle(x,y,10f,paint);textPaint.color=Color.WHITE;textPaint.textSize=13f;c.drawText(if(info)"i" else "!",x-2.3f,y+4.5f,textPaint)}
 
     private fun drawConnection(c:Canvas,con:FlowConnection){
@@ -395,13 +451,22 @@ class FlowCanvasView(context: Context) : View(context) {
 
     private fun drawConnectionPreview(c:Canvas){val start=document.elements.firstOrNull{it.id==connectionStartId}?:return;if(connectionGesture.size<2)return;paint.style=Paint.Style.STROKE;paint.strokeWidth=5f;paint.color=0xff2563eb.toInt();paint.pathEffect=null;val pts=connectionGesture;val p=Path();p.moveTo(pts.first().x,pts.first().y);for(i in 1 until pts.size){val a=pts[i-1];val b=pts[i];p.quadTo((a.x+b.x)/2f,(a.y+b.y)/2f,b.x,b.y)};c.drawPath(p,paint);paint.style=Paint.Style.FILL;paint.color=0xff2563eb.toInt();c.drawCircle(connectionPreview.x,connectionPreview.y,5f,paint);paint.style=Paint.Style.STROKE;val side=endpointSide(start,connectionStartPoint);val q=explicitEndpoint(start,side);c.drawCircle(q.x,q.y,7f,paint)}
 
+    fun beginCustomShapeMode(targetId:String){
+        connectionMode=false; connectionStartId=null; connectionGesture.clear(); customShapeMode=true; customShapeTargetId=targetId; customGesture.clear(); invalidate(); onSelectionChanged?.invoke()
+    }
+    fun finishCustomShapeMode(){
+        customShapeMode=false; customShapeTargetId=null; customGesture.clear(); invalidate(); onSelectionChanged?.invoke()
+    }
+    fun cancelCustomShapeMode(){ customShapeMode=false; customShapeTargetId=null; customGesture.clear(); invalidate(); onSelectionChanged?.invoke() }
+    fun commitCustomShape(){ if(!customShapeMode)return; val pts=customGesture.toList(); if(pts.size<8){ onSelectionChanged?.invoke(); return }; onCustomShapeFinished?.invoke(pts) }
+
     fun beginConnectionMode(){connectionMode=true;connectionStartId=null;connectionGesture.clear();invalidate();onSelectionChanged?.invoke()}
     fun beginConnectionFrom(id:String){connectionMode=true;connectionStartId=id;connectionGesture.clear();selectedElementId=id;selectedConnectionId=null;invalidate();onSelectionChanged?.invoke()}
     fun cancelConnectionMode(){connectionMode=false;connectionStartId=null;connectionGesture.clear();invalidate();onConnectionCancelled?.invoke();onSelectionChanged?.invoke()}
 
-    override fun onTouchEvent(event:MotionEvent):Boolean{scaleDetector.onTouchEvent(event);when(event.actionMasked){MotionEvent.ACTION_DOWN->{gestureMoved=false;lastX=event.x;lastY=event.y;val w=world(event.x,event.y);if(connectionMode){val hit=hitElement(w.x,w.y);if(connectionStartId==null&&hit!=null){connectionStartId=hit.id;selectedElementId=hit.id;selectedConnectionId=null;connectionStartPoint.set(w.x,w.y);connectionGesture.clear();connectionGesture.add(PointF(w.x,w.y));connectionPreview.set(w.x,w.y);invalidate();onSelectionChanged?.invoke();return true};if(connectionStartId!=null){connectionGesture.add(PointF(w.x,w.y));connectionPreview.set(w.x,w.y);invalidate();return true}};val selected=selectedElement();if(selected!=null){val h=handleAt(selected,w.x,w.y);if(h!=Handle.NONE){resizeId=selected.id;resizeHandle=h;dragId=null;startResize=RectF(selected.x,selected.y,selected.x+selected.width,selected.y+selected.height);return true};if(!lastNotesButton.isEmpty&&lastNotesButton.contains(w.x,w.y)){onNotesTap?.invoke(selected);return true}};val hit=hitElement(w.x,w.y);if(hit!=null){selectedElementId=hit.id;selectedConnectionId=null;dragId=hit.id;dragOffsetX=w.x-hit.x;dragOffsetY=w.y-hit.y;startMoveX=hit.x;startMoveY=hit.y;val now=System.currentTimeMillis();if(now-lastTap<300)onDoubleTapElement?.invoke(hit);lastTap=now}else{selectedElementId=null;selectedConnectionId=hitConnection(w.x,w.y)?.id};onSelectionChanged?.invoke();invalidate();return true}
-        MotionEvent.ACTION_MOVE->{if(event.pointerCount>1){gestureMoved=true;return true};val w=world(event.x,event.y);if(connectionMode&&connectionStartId!=null){connectionGesture.add(PointF(w.x,w.y));connectionPreview.set(w.x,w.y);gestureMoved=true;invalidate();return true};if(resizeId!=null){resize(selectedElement()?:return true,w.x,w.y);gestureMoved=true}else if(dragId!=null){selectedElement()?.let{it.x=w.x-dragOffsetX;it.y=w.y-dragOffsetY;if(snapToGrid){it.x=round(it.x/gridSize)*gridSize;it.y=round(it.y/gridSize)*gridSize}};gestureMoved=true}else{panX+=event.x-lastX;panY+=event.y-lastY;gestureMoved=true};lastX=event.x;lastY=event.y;invalidate();return true}
-        MotionEvent.ACTION_UP->{if(connectionMode&&connectionStartId!=null){val w=world(event.x,event.y);val target=hitElement(w.x,w.y);val source=connectionStartId?:return true;if(target!=null&&target.id!=source){val start=document.elements.firstOrNull{it.id==source};if(start!=null){val fs=endpointSide(start,connectionStartPoint);val ts=endpointSide(target,w);val route=routeConnection(start,target,fs,ts,connectionGesture);onConnectionRequested?.invoke(source,target.id,fs,ts,route)};return true};if(!gestureMoved&&target==null){connectionStartId=null;connectionGesture.clear();invalidate();onSelectionChanged?.invoke()};return true};val e=selectedElement();if(dragId!=null&&e!=null&&(e.x!=startMoveX||e.y!=startMoveY))onMoveFinished?.invoke(e,startMoveX,startMoveY);if(resizeId!=null&&e!=null){val old=startResize;if(old.left!=e.x||old.top!=e.y||old.width()!=e.width||old.height()!=e.height)onResizeFinished?.invoke(e,old.left,old.top,old.width(),old.height())};dragId=null;resizeId=null;resizeHandle=Handle.NONE;return true}
+    override fun onTouchEvent(event:MotionEvent):Boolean{scaleDetector.onTouchEvent(event);when(event.actionMasked){MotionEvent.ACTION_DOWN->{gestureMoved=false;lastX=event.x;lastY=event.y;val w=world(event.x,event.y);if(customShapeMode){ customGesture.clear(); customGesture.add(PointF(w.x,w.y)); gestureMoved=false; invalidate(); return true };if(connectionMode){val hit=hitElement(w.x,w.y);if(connectionStartId==null&&hit!=null){connectionStartId=hit.id;selectedElementId=hit.id;selectedConnectionId=null;connectionStartPoint.set(w.x,w.y);connectionGesture.clear();connectionGesture.add(PointF(w.x,w.y));connectionPreview.set(w.x,w.y);invalidate();onSelectionChanged?.invoke();return true};if(connectionStartId!=null){connectionGesture.add(PointF(w.x,w.y));connectionPreview.set(w.x,w.y);invalidate();return true}};val selected=selectedElement();if(selected!=null&&!customShapeMode){val h=handleAt(selected,w.x,w.y);if(h!=Handle.NONE){resizeId=selected.id;resizeHandle=h;dragId=null;startResize=RectF(selected.x,selected.y,selected.x+selected.width,selected.y+selected.height);return true};if(!lastNotesButton.isEmpty&&lastNotesButton.contains(w.x,w.y)){onNotesTap?.invoke(selected);return true}};val hit=hitElement(w.x,w.y);if(hit!=null){selectedElementId=hit.id;selectedConnectionId=null;dragId=hit.id;dragOffsetX=w.x-hit.x;dragOffsetY=w.y-hit.y;startMoveX=hit.x;startMoveY=hit.y;val now=System.currentTimeMillis();if(now-lastTap<300)onDoubleTapElement?.invoke(hit);lastTap=now}else{selectedElementId=null;selectedConnectionId=hitConnection(w.x,w.y)?.id};onSelectionChanged?.invoke();invalidate();return true}
+        MotionEvent.ACTION_MOVE->{if(event.pointerCount>1){gestureMoved=true;return true};val w=world(event.x,event.y);if(customShapeMode){ customGesture.add(PointF(w.x,w.y)); gestureMoved=true; invalidate(); return true };if(connectionMode&&connectionStartId!=null){connectionGesture.add(PointF(w.x,w.y));connectionPreview.set(w.x,w.y);gestureMoved=true;invalidate();return true};if(resizeId!=null){resize(selectedElement()?:return true,w.x,w.y);gestureMoved=true}else if(dragId!=null){selectedElement()?.let{it.x=w.x-dragOffsetX;it.y=w.y-dragOffsetY;if(snapToGrid){it.x=round(it.x/gridSize)*gridSize;it.y=round(it.y/gridSize)*gridSize}};gestureMoved=true}else{panX+=event.x-lastX;panY+=event.y-lastY;gestureMoved=true};lastX=event.x;lastY=event.y;invalidate();return true}
+        MotionEvent.ACTION_UP->{if(customShapeMode){ invalidate(); return true };if(connectionMode&&connectionStartId!=null){val w=world(event.x,event.y);val target=hitElement(w.x,w.y);val source=connectionStartId?:return true;if(target!=null&&target.id!=source){val start=document.elements.firstOrNull{it.id==source};if(start!=null){val fs=endpointSide(start,connectionStartPoint);val ts=endpointSide(target,w);val route=routeConnection(start,target,fs,ts,connectionGesture);onConnectionRequested?.invoke(source,target.id,fs,ts,route)};return true};if(!gestureMoved&&target==null){connectionStartId=null;connectionGesture.clear();invalidate();onSelectionChanged?.invoke()};return true};val e=selectedElement();if(dragId!=null&&e!=null&&(e.x!=startMoveX||e.y!=startMoveY))onMoveFinished?.invoke(e,startMoveX,startMoveY);if(resizeId!=null&&e!=null){val old=startResize;if(old.left!=e.x||old.top!=e.y||old.width()!=e.width||old.height()!=e.height)onResizeFinished?.invoke(e,old.left,old.top,old.width(),old.height())};dragId=null;resizeId=null;resizeHandle=Handle.NONE;return true}
         MotionEvent.ACTION_CANCEL->{dragId=null;resizeId=null;resizeHandle=Handle.NONE;if(connectionMode)cancelConnectionMode();return true}}
         return true}
 
