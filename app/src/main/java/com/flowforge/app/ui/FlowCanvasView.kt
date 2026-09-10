@@ -130,7 +130,7 @@ class FlowCanvasView(context: Context) : View(context) {
     private fun drawConnection(c: Canvas, con: FlowConnection) {
         val a=document.elements.firstOrNull{it.id==con.fromId} ?: return
         val b=document.elements.firstOrNull{it.id==con.toId} ?: return
-        val pair=document.connections.filter{it.fromId==con.fromId && it.toId==con.toId}
+        val pair=document.connections.filter{(it.fromId==con.fromId && it.toId==con.toId)||(it.fromId==con.toId && it.toId==con.fromId)}.sortedBy{it.id}
         val pairIndex=pair.indexOfFirst{it.id==con.id}.coerceAtLeast(0)
         val (p1,p2)=connectionEndpoints(a,b,pairIndex,pair.size)
         val path=buildConnectionPath(p1,p2,con.bendX,con.bendY,pairIndex)
@@ -151,7 +151,7 @@ class FlowCanvasView(context: Context) : View(context) {
         val acx=a.x+a.width/2f; val acy=a.y+a.height/2f; val bcx=b.x+b.width/2f; val bcy=b.y+b.height/2f
         val dx=bcx-acx; val dy=bcy-acy
         val side = if(abs(dy)>=abs(dx)){if(dy>=0)1 else 3}else{if(dx>=0)2 else 4}
-        val spread=if(count<=1)0f else ((index-(count-1)/2f)*52f)
+        val spread=if(count<=1)0f else ((index-(count-1)/2f)*90f)
         fun point(e:FlowElement,side:Int,offset:Float):PointF=when(side){1->PointF(e.x+e.width/2f+offset,e.y+e.height);3->PointF(e.x+e.width/2f+offset,e.y);2->PointF(e.x+e.width,e.y+e.height/2f+offset);else->PointF(e.x,e.y+e.height/2f+offset)}
         val opposite=when(side){1->3;3->1;2->4;else->2}
         return point(a,side,spread) to point(b,opposite,spread)
@@ -308,7 +308,7 @@ class FlowCanvasView(context: Context) : View(context) {
         return document.connections.asReversed().firstOrNull{con->
             val a=document.elements.firstOrNull{it.id==con.fromId} ?: return@firstOrNull false
             val b=document.elements.firstOrNull{it.id==con.toId} ?: return@firstOrNull false
-            val pair=document.connections.filter{it.fromId==con.fromId && it.toId==con.toId}
+            val pair=document.connections.filter{(it.fromId==con.fromId && it.toId==con.toId)||(it.fromId==con.toId && it.toId==con.fromId)}.sortedBy{it.id}
             val index=pair.indexOfFirst{it.id==con.id}.coerceAtLeast(0)
             val (p1,p2)=connectionEndpoints(a,b,index,pair.size)
             val path=buildConnectionPath(p1,p2,con.bendX,con.bendY,index)
