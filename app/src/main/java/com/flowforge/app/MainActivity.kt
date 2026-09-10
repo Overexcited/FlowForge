@@ -139,17 +139,21 @@ class MainActivity : Activity() {
         setOnClickListener{action()}; layoutParams=LinearLayout.LayoutParams(dp(44),dp(52))
     }
 
-    private fun smallButton(label:String, action:()->Unit) = Button(this).apply {
-        text=label; textSize=12f; minHeight=0; minimumHeight=0; includeFontPadding=false; gravity=Gravity.CENTER; setPadding(dp(4),0,dp(4),0); isAllCaps=false
+    private fun smallButton(label:String, action:()->Unit) = TextView(this).apply {
+        text=label; textSize=12f; includeFontPadding=false; gravity=Gravity.CENTER
+        // Size the button from its text instead of Android Button's built-in minimum width.
+        // 32dp height gives roughly the same visual padding above/below as the 9dp
+        // left/right padding used here.
+        setPadding(dp(9),0,dp(9),0)
         val dark=canvas.darkMode
         setTextColor(if(dark) Color.WHITE else 0xff172033.toInt())
         background=GradientDrawable().apply{
-            cornerRadius=dp(8).toFloat()
+            cornerRadius=dp(7).toFloat()
             setColor(if(dark) 0xff1e293b.toInt() else 0xffe2e8f0.toInt())
             setStroke(dp(1),if(dark) 0xff475569.toInt() else 0xffcbd5e1.toInt())
         }
-        stateListAnimator=null
-        setOnClickListener{action()}; layoutParams=LinearLayout.LayoutParams(WRAP_CONTENT,dp(38)).apply{setMargins(dp(2),dp(1),dp(2),dp(1))}
+        setOnClickListener{action()}
+        layoutParams=LinearLayout.LayoutParams(WRAP_CONTENT,dp(32)).apply{setMargins(dp(1),dp(1),dp(1),dp(1))}
     }
 
     private fun updateUi() {
