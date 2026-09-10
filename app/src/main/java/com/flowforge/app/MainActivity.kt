@@ -144,9 +144,12 @@ class MainActivity : Activity() {
     }
 
     private fun updateUi() {
-        undoButton?.isEnabled=history.canUndo(); redoButton?.isEnabled=history.canRedo()
+        undoButton?.isEnabled=history.canUndo(); undoButton?.alpha=if(history.canUndo())1f else 0.45f
+        redoButton?.isEnabled=history.canRedo(); redoButton?.alpha=if(history.canRedo())1f else 0.45f
+        contextBar?.setBackgroundColor(if(canvas.darkMode)0xff111827.toInt() else 0xfff8fafc.toInt())
+        contextScroll?.setBackgroundColor(if(canvas.darkMode)0xff111827.toInt() else 0xfff8fafc.toInt())
         val mode = if (canvas.connectionMode) " • Draw connection: tap/drag from one block to another" else ""
-        status?.text="${documentName}${if(documentDirty)" • Unsaved" else ""}  •  ${doc.elements.size} elements  •  ${doc.connections.size} connections  •  ${if(canvas.snapToGrid)"Snap" else "Free"}$mode"
+        status?.text="${documentName}${if(documentDirty)" • Unsaved" else ""}  •  ${doc.elements.size} elements  •  ${doc.connections.size} connections$mode"
         val bar=contextBar ?: return
         val scroll=contextScroll ?: return
         bar.removeAllViews()
