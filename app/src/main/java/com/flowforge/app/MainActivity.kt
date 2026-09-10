@@ -62,8 +62,7 @@ class MainActivity : Activity() {
         // Initialize the canvas before constructing any UI that reads its settings.
         canvas = FlowCanvasView(this)
 
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
+        val root = FrameLayout(this).apply {
             setBackgroundColor(if (canvas.darkMode) 0xff0f172a.toInt() else Color.WHITE)
         }
         root.setOnApplyWindowInsetsListener { v, insets ->
@@ -86,13 +85,17 @@ class MainActivity : Activity() {
         top.addView(iconButton("↶", "Undo") { undo() }.also { undoButton = it })
         top.addView(iconButton("↷", "Redo") { redo() }.also { redoButton = it })
         top.addView(iconButton("＋", "Add") { addMenu() }.also { addButton = it })
-        root.addView(top, LinearLayout.LayoutParams(-1, dp(62)))
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(if (canvas.darkMode) 0xff0f172a.toInt() else Color.WHITE)
+        }
+        content.addView(top, LinearLayout.LayoutParams(-1, dp(62)))
 
         status = TextView(this).apply {
             textSize = 12f; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(12), 0, dp(12), 0)
             setTextColor(if (canvas.darkMode) 0xffcbd5e1.toInt() else 0xff475569.toInt()); setBackgroundColor(if (canvas.darkMode) 0xff1e293b.toInt() else 0xffe2e8f0.toInt())
         }
-        root.addView(status, LinearLayout.LayoutParams(-1, dp(28)))
+        content.addView(status, LinearLayout.LayoutParams(-1, dp(28)))
 
         contextBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
@@ -103,7 +106,8 @@ class MainActivity : Activity() {
             visibility = View.GONE
             addView(contextBar)
         }
-        root.addView(contextScroll, LinearLayout.LayoutParams(-1, dp(58)))
+        // The contextual toolbar is added as an overlay below, so it never changes the canvas layout.
+        
 
         canvas.onSelectionChanged = { updateUi() }
         canvas.onDoubleTapElement = { showElementEditor(it) }
@@ -118,7 +122,12 @@ class MainActivity : Activity() {
             val before=doc.deepCopy(); before.elements.firstOrNull{it.id==e.id}?.apply{x=oldX;y=oldY;width=oldW;height=oldH}
             history.record(before,doc.deepCopy()); documentDirty=true; updateUi()
         }
-        root.addView(canvas, LinearLayout.LayoutParams(-1, 0, 1f))
+        content.addView(canvas, LinearLayout.LayoutParams(-1, 0, 1f))
+        root.addView(content, FrameLayout.LayoutParams(-1, -1))
+        root.addView(contextScroll, FrameLayout.LayoutParams(-1, dp(48)).apply {
+            gravity = Gravity.TOP
+            topMargin = dp(90) // 62dp top bar + 28dp status bar
+        })
         setContentView(root)
         root.requestApplyInsets()
         updateUi()
@@ -131,7 +140,7 @@ class MainActivity : Activity() {
     }
 
     private fun smallButton(label:String, action:()->Unit) = Button(this).apply {
-        text=label; textSize=12f; minHeight=0; minimumHeight=0; setPadding(dp(10),0,dp(10),0); isAllCaps=false
+        text=label; textSize=12f; minHeight=0; minimumHeight=0; includeFontPadding=false; gravity=Gravity.CENTER; setPadding(dp(10),0,dp(10),0); isAllCaps=false
         val dark=canvas.darkMode
         setTextColor(if(dark) Color.WHITE else 0xff172033.toInt())
         background=GradientDrawable().apply{
@@ -140,7 +149,7 @@ class MainActivity : Activity() {
             setStroke(dp(1),if(dark) 0xff475569.toInt() else 0xffcbd5e1.toInt())
         }
         stateListAnimator=null
-        setOnClickListener{action()}; layoutParams=LinearLayout.LayoutParams(WRAP_CONTENT,dp(46)).apply{setMargins(dp(2),dp(1),dp(2),dp(1))}
+        setOnClickListener{action()}; layoutParams=LinearLayout.LayoutParams(WRAP_CONTENT,dp(38)).apply{setMargins(dp(2),dp(1),dp(2),dp(1))}
     }
 
     private fun updateUi() {
@@ -158,13 +167,12 @@ class MainActivity : Activity() {
         if(e!=null && !canvas.connectionMode){
             bar.visibility=View.VISIBLE; scroll.visibility=View.VISIBLE
             bar.addView(TextView(this).apply{text="Selected: ${e.label.ifBlank{"Element"}}";textSize=12f;setTextColor(if(canvas.darkMode)Color.WHITE else 0xff172033.toInt());setPadding(4,0,dp(8),0)},LinearLayout.LayoutParams(0,WRAP_CONTENT,1f))
+            bar.addView(smallButton("Edit"){showElementEditor(e)})
             bar.addView(smallButton("✎ Draw"){canvas.beginConnectionMode()})
             bar.addView(smallButton("Clone"){cloneElement(e)})
-            bar.addView(smallButton("Save Block"){saveAsset(e)})
-            bar.addView(smallButton("Edit"){showElementEditor(e)})
             bar.addView(smallButton("Reset"){resetElement(e)})
-            bar.addView(smallButton("Notes"){showNotes(e)})
             bar.addView(smallButton("Delete"){deleteSelected()})
+            bar.addView(smallButton("Save Block"){saveAsset(e)})
         } else if(c!=null && !canvas.connectionMode){
             bar.visibility=View.VISIBLE; scroll.visibility=View.VISIBLE
             bar.addView(TextView(this).apply{text="Selected connection";textSize=12f;setTextColor(if(canvas.darkMode)Color.WHITE else 0xff172033.toInt());setPadding(4,0,dp(8),0)},LinearLayout.LayoutParams(0,WRAP_CONTENT,1f))
@@ -211,7 +219,7 @@ class MainActivity : Activity() {
 
     private fun addMenu(){
         val anchor=addButton ?: return
-        showCompactPopup(anchor,"Add",listOf("New canvas","Element","Saved block","Template")){choice->when(choice){
+        showCompactPopup(anchor,"Add",listOf("New canvas","New element","Saved block","Template")){choice->when(choice){
             0->newDocument()
             1->addElement()
             2->assetPicker()
@@ -282,13 +290,12 @@ class MainActivity : Activity() {
     }
 
     private fun addElement(){
-        val types=ElementType.values()
-        val labels=types.map{it.name.lowercase().replaceFirstChar{c->c.uppercase()}}
-        showCompactPopup(addButton ?: canvas,"Add element",labels){which->
-            val type=types[which]
-            val e=FlowElement(type=type,x=260f+doc.elements.size*35f,y=220f+doc.elements.size*25f,label=type.name.lowercase().replaceFirstChar{it.uppercase()})
-            val before=doc.deepCopy();doc.elements+=e;canvas.selectedElementId=e.id;canvas.selectedConnectionId=null;history.record(before,doc.deepCopy());documentDirty=true;canvas.invalidate();updateUi()
-        }
+        val e=FlowElement(type=ElementType.PROCESS,x=260f+doc.elements.size*35f,y=220f+doc.elements.size*25f,label="")
+        // New elements start as the standard rounded block and can be reshaped later.
+        val before=doc.deepCopy(); doc.elements+=e
+        canvas.selectedElementId=e.id; canvas.selectedConnectionId=null
+        history.record(before,doc.deepCopy()); documentDirty=true
+        canvas.invalidate(); updateUi()
     }
 
     private fun createConnection(fromId:String,toId:String){
@@ -314,12 +321,24 @@ class MainActivity : Activity() {
     }
 
     private fun showElementEditor(e:FlowElement){
-        val box=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(22,8,22,4)}
-        val fieldText=if(canvas.darkMode)Color.WHITE else 0xff172033.toInt(); val fieldHint=if(canvas.darkMode)0xff94a3b8.toInt() else 0xff64748b.toInt()
-        val label=EditText(this).apply{setText(e.label);hint="Visible label";setTextColor(fieldText);setHintTextColor(fieldHint)}; val notes=EditText(this).apply{setText(e.notes);hint="Metadata / notes";minLines=3;setTextColor(fieldText);setHintTextColor(fieldHint)}
-        val shapes=ShapeType.values(); val spinner=Spinner(this).apply{adapter=ArrayAdapter(this@MainActivity,android.R.layout.simple_spinner_dropdown_item,shapes.map{shapeName(it)});setSelection(e.shape.ordinal)}
-        box.addView(label);box.addView(TextView(this).apply{text="Shape";setPadding(0,12,0,3)});box.addView(spinner);box.addView(notes)
-        dialogBuilder().setTitle("Edit element").setView(box).setPositiveButton("Save"){_,_->val before=doc.deepCopy();e.label=label.text.toString();e.notes=notes.text.toString();e.shape=shapes[spinner.selectedItemPosition];history.record(before,doc.deepCopy());canvas.invalidate();updateUi()}.setNeutralButton("Reset default"){_,_->resetElement(e)}.setNegativeButton("Cancel",null).show()
+        val dark=canvas.darkMode
+        val box=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(22),dp(6),dp(22),dp(4));setBackgroundColor(if(dark)0xff0f172a.toInt() else Color.WHITE)}
+        val fieldText=if(dark)Color.WHITE else 0xff172033.toInt(); val fieldHint=if(dark)0xff94a3b8.toInt() else 0xff64748b.toInt()
+        fun edit(initial:String,hintText:String,minLines:Int=1)=EditText(this).apply{setText(initial);hint=hintText;if(minLines>1)this.minLines=minLines;setTextColor(fieldText);setHintTextColor(fieldHint);if(android.os.Build.VERSION.SDK_INT>=21)backgroundTintList=android.content.res.ColorStateList.valueOf(if(dark)0xff64748b.toInt() else 0xff94a3b8.toInt())}
+        val label=edit(e.label,"Visible label")
+        val notes=edit(e.notes,"Metadata / notes",3)
+        val shapes=ShapeType.values()
+        fun sentence(value:String)=value.lowercase().replaceFirstChar{it.uppercase()}
+        val spinner=Spinner(this).apply{
+            adapter=object:ArrayAdapter<String>(this@MainActivity,android.R.layout.simple_spinner_item,shapes.map{sentence(shapeName(it))}){
+                override fun getView(position:Int,convertView:View?,parent:ViewGroup):View{return super.getView(position,convertView,parent).apply{setBackgroundColor(if(dark)0xff1e293b.toInt() else Color.WHITE);(this as? TextView)?.apply{setTextColor(if(dark)Color.WHITE else 0xff172033.toInt());setPadding(dp(10),dp(8),dp(10),dp(8))}}}
+                override fun getDropDownView(position:Int,convertView:View?,parent:ViewGroup):View{return super.getDropDownView(position,convertView,parent).apply{setBackgroundColor(if(dark)0xff1e293b.toInt() else Color.WHITE);(this as? TextView)?.apply{setTextColor(if(dark)Color.WHITE else 0xff172033.toInt());setPadding(dp(14),dp(10),dp(14),dp(10))}}}
+            };setSelection(e.shape.ordinal);setBackgroundColor(if(dark)0xff1e293b.toInt() else 0xfff1f5f9.toInt())
+        }
+        box.addView(editorLabel("Visible label"));box.addView(label);box.addView(editorLabel("Shape"));box.addView(spinner);box.addView(editorLabel("Notes"));box.addView(notes)
+        val dialog=dialogBuilder().setTitle("Edit element").setView(box).setPositiveButton("Save"){_,_->val before=doc.deepCopy();e.label=label.text.toString();e.notes=notes.text.toString();e.shape=shapes[spinner.selectedItemPosition];history.record(before,doc.deepCopy());documentDirty=true;canvas.invalidate();updateUi()}.setNeutralButton("Reset default"){_,_->resetElement(e)}.setNegativeButton("Cancel",null).create()
+        dialog.setOnShowListener{val textColor=if(dark)Color.WHITE else 0xff172033.toInt();dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(textColor);dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.setTextColor(textColor);dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.setTextColor(textColor);dialog.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(if(dark)0xff0f172a.toInt() else Color.WHITE))}
+        dialog.show()
     }
     private fun resetElement(e:FlowElement){val before=doc.deepCopy();e.shape=FlowElement.defaultShape(e.type);e.width=180f;e.height=90f;history.record(before,doc.deepCopy());canvas.invalidate();updateUi()}
 
@@ -387,7 +406,7 @@ class MainActivity : Activity() {
         val label=edit(c.label,"Line label")
         val notes=edit(c.notes,"Line metadata / notes",3)
         val arrows=Spinner(this).apply{
-            adapter=object: ArrayAdapter<String>(this@MainActivity,android.R.layout.simple_spinner_item,ArrowType.values().map{it.name}){
+            adapter=object: ArrayAdapter<String>(this@MainActivity,android.R.layout.simple_spinner_item,ArrowType.values().map{it.name.lowercase().replaceFirstChar{c->c.uppercase()}}){
                 override fun getView(position:Int,convertView:View?,parent:ViewGroup):View{return super.getView(position,convertView,parent).apply{setBackgroundColor(if(dark)0xff1e293b.toInt() else Color.WHITE);(this as? TextView)?.setTextColor(if(dark)Color.WHITE else 0xff172033.toInt())}}
                 override fun getDropDownView(position:Int,convertView:View?,parent:ViewGroup):View{return super.getDropDownView(position,convertView,parent).apply{setBackgroundColor(if(dark)0xff1e293b.toInt() else Color.WHITE);(this as? TextView)?.setTextColor(if(dark)Color.WHITE else 0xff172033.toInt())}}
             }
@@ -395,7 +414,7 @@ class MainActivity : Activity() {
             setBackgroundColor(if(dark)0xff1e293b.toInt() else 0xfff1f5f9.toInt())
         }
         val styles=Spinner(this).apply{
-            adapter=object: ArrayAdapter<String>(this@MainActivity,android.R.layout.simple_spinner_item,LineStyle.values().map{it.name}){
+            adapter=object: ArrayAdapter<String>(this@MainActivity,android.R.layout.simple_spinner_item,LineStyle.values().map{it.name.lowercase().replaceFirstChar{c->c.uppercase()}}){
                 override fun getView(position:Int,convertView:View?,parent:ViewGroup):View{return super.getView(position,convertView,parent).apply{setBackgroundColor(if(dark)0xff1e293b.toInt() else Color.WHITE);(this as? TextView)?.setTextColor(if(dark)Color.WHITE else 0xff172033.toInt())}}
                 override fun getDropDownView(position:Int,convertView:View?,parent:ViewGroup):View{return super.getDropDownView(position,convertView,parent).apply{setBackgroundColor(if(dark)0xff1e293b.toInt() else Color.WHITE);(this as? TextView)?.setTextColor(if(dark)Color.WHITE else 0xff172033.toInt())}}
             }
@@ -403,16 +422,12 @@ class MainActivity : Activity() {
             setBackgroundColor(if(dark)0xff1e293b.toInt() else 0xfff1f5f9.toInt())
         }
         val color=connectionColorSpinner(c.color)
-        val bx=edit(c.bendX.toString(),"Horizontal bend offset")
-        val by=edit(c.bendY.toString(),"Vertical bend offset")
 
         box.addView(editorLabel("Label"));box.addView(label)
         box.addView(editorLabel("Notes"));box.addView(notes)
         box.addView(editorLabel("Arrow"));box.addView(arrows)
         box.addView(editorLabel("Line style"));box.addView(styles)
         box.addView(editorLabel("Line colour"));box.addView(color)
-        box.addView(editorLabel("Horizontal bend offset (X)"));box.addView(bx)
-        box.addView(editorLabel("Vertical bend offset (Y)"));box.addView(by)
 
         val dialog=dialogBuilder().setTitle("Edit connection").setView(box)
             .setPositiveButton("Save"){_,_->
@@ -421,8 +436,6 @@ class MainActivity : Activity() {
                 c.arrowType=ArrowType.values()[arrows.selectedItemPosition]
                 c.lineStyle=LineStyle.values()[styles.selectedItemPosition]
                 c.color=connectionColors().values.elementAt(color.selectedItemPosition)
-                c.bendX=bx.text.toString().toFloatOrNull()?:0f
-                c.bendY=by.text.toString().toFloatOrNull()?:0f
                 history.record(before,doc.deepCopy());documentDirty=true;canvas.invalidate();updateUi()
             }.setNegativeButton("Cancel",null).create()
         dialog.setOnShowListener{
