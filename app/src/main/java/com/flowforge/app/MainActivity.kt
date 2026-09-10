@@ -43,7 +43,7 @@ class MainActivity : Activity() {
     companion object {
         private const val SAVE_JSON = 10; private const val SAVE_MERMAID = 11
         private const val OPEN_JSON = 12; private const val OPEN_MERMAID = 13
-        private const val SAVE_PDF = 14; private const val SAVE_IMAGE = 15; private const val SAVE_JSON_AS = 16; private const val IMPORT_JSON = 17
+        private const val SAVE_PDF = 14; private const val SAVE_IMAGE = 15; private const val SAVE_PDF_DARK = 16; private const val SAVE_IMAGE_DARK = 17; private const val SAVE_JSON_AS = 18; private const val IMPORT_JSON = 19
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -333,22 +333,63 @@ class MainActivity : Activity() {
         val box=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(22),dp(6),dp(22),dp(4));setBackgroundColor(if(dark)0xff0f172a.toInt() else Color.WHITE)}
         val fieldText=if(dark)Color.WHITE else 0xff172033.toInt(); val fieldHint=if(dark)0xff94a3b8.toInt() else 0xff64748b.toInt()
         fun edit(initial:String,hintText:String,minLines:Int=1)=EditText(this).apply{setText(initial);hint=hintText;if(minLines>1)this.minLines=minLines;setTextColor(fieldText);setHintTextColor(fieldHint);if(android.os.Build.VERSION.SDK_INT>=21)backgroundTintList=android.content.res.ColorStateList.valueOf(if(dark)0xff64748b.toInt() else 0xff94a3b8.toInt())}
-        val label=edit(e.label,"Visible label")
+        val label=edit(e.label,"")
         val notes=edit(e.notes,"Metadata / notes",3)
-        val shapes=ShapeType.values()
+        val shapes=ShapeType.values().filter{it!=ShapeType.DOCUMENT && it!=ShapeType.CLOUD}
+        val thicknesses=arrayOf(LineThickness.DEFAULT,LineThickness.MEDIUM,LineThickness.LARGE)
+        val thicknessSpinner=thicknessSpinner(e.outlineThickness)
+        val fillSpinner=fillColorSpinner(e.fillColor)
         fun sentence(value:String)=value.lowercase().replaceFirstChar{it.uppercase()}
         val spinner=Spinner(this).apply{
             adapter=object:ArrayAdapter<String>(this@MainActivity,android.R.layout.simple_spinner_item,shapes.map{sentence(shapeName(it))}){
                 override fun getView(position:Int,convertView:View?,parent:ViewGroup):View{return super.getView(position,convertView,parent).apply{setBackgroundColor(if(dark)0xff1e293b.toInt() else Color.WHITE);(this as? TextView)?.apply{setTextColor(if(dark)Color.WHITE else 0xff172033.toInt());setPadding(dp(10),dp(8),dp(10),dp(8))}}}
                 override fun getDropDownView(position:Int,convertView:View?,parent:ViewGroup):View{return super.getDropDownView(position,convertView,parent).apply{setBackgroundColor(if(dark)0xff1e293b.toInt() else Color.WHITE);(this as? TextView)?.apply{setTextColor(if(dark)Color.WHITE else 0xff172033.toInt());setPadding(dp(14),dp(10),dp(14),dp(10))}}}
-            };setSelection(e.shape.ordinal);setBackgroundColor(if(dark)0xff1e293b.toInt() else 0xfff1f5f9.toInt())
+            };setSelection(shapes.indexOf(e.shape).coerceAtLeast(0));setBackgroundColor(if(dark)0xff1e293b.toInt() else 0xfff1f5f9.toInt())
         }
-        box.addView(editorLabel("Visible label"));box.addView(label);box.addView(editorLabel("Shape"));box.addView(spinner);box.addView(editorLabel("Notes"));box.addView(notes)
-        val dialog=dialogBuilder().setTitle("Edit Block").setView(box).setPositiveButton("Save"){_,_->val before=doc.deepCopy();e.label=label.text.toString();e.notes=notes.text.toString();e.shape=shapes[spinner.selectedItemPosition];history.record(before,doc.deepCopy());documentDirty=true;canvas.invalidate();updateUi()}.setNeutralButton("Reset default"){_,_->resetElement(e)}.setNegativeButton("Cancel",null).create()
+        box.addView(editorLabel("Label"));box.addView(label)
+        box.addView(editorLabel("Shape"));box.addView(spinner)
+        box.addView(editorLabel("Outline thickness"));box.addView(thicknessSpinner)
+        box.addView(editorLabel("Fill colour"));box.addView(fillSpinner)
+        box.addView(editorLabel("Notes"));box.addView(notes)
+        val dialog=dialogBuilder().setTitle("Edit Block").setView(box).setPositiveButton("Save"){_,_->
+            val before=doc.deepCopy();e.label=label.text.toString();e.notes=notes.text.toString();e.shape=shapes[spinner.selectedItemPosition]
+            e.outlineThickness=thicknesses[thicknessSpinner.selectedItemPosition]
+            e.fillColor=fillColors().values.elementAt(fillSpinner.selectedItemPosition)
+            history.record(before,doc.deepCopy());documentDirty=true;canvas.invalidate();updateUi()
+        }.setNeutralButton("Reset default"){_,_->resetElement(e)}.setNegativeButton("Cancel",null).create()
         dialog.setOnShowListener{val textColor=if(dark)Color.WHITE else 0xff172033.toInt();dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(textColor);dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.setTextColor(textColor);dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.setTextColor(textColor);dialog.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(if(dark)0xff0f172a.toInt() else Color.WHITE))}
         dialog.show()
     }
-    private fun resetElement(e:FlowElement){val before=doc.deepCopy();e.shape=FlowElement.defaultShape(e.type);e.width=180f;e.height=90f;history.record(before,doc.deepCopy());canvas.invalidate();updateUi()}
+    private fun resetElement(e:FlowElement){val before=doc.deepCopy();e.shape=FlowElement.defaultShape(e.type);e.width=180f;e.height=90f;e.outlineThickness=LineThickness.DEFAULT;e.fillColor=null;history.record(before,doc.deepCopy());canvas.invalidate();updateUi()}
+
+    private fun thicknessSpinner(current:LineThickness):Spinner {
+        val names=listOf("Default","Medium","Large"); val dark=canvas.darkMode
+        return Spinner(this).apply{
+            adapter=object:ArrayAdapter<String>(this@MainActivity,android.R.layout.simple_spinner_item,names){
+                override fun getView(position:Int,convertView:View?,parent:ViewGroup):View{return super.getView(position,convertView,parent).apply{setBackgroundColor(if(dark)0xff1e293b.toInt() else Color.WHITE);(this as? TextView)?.apply{setTextColor(if(dark)Color.WHITE else 0xff172033.toInt());setPadding(dp(10),dp(8),dp(10),dp(8))}}}
+                override fun getDropDownView(position:Int,convertView:View?,parent:ViewGroup):View{return super.getDropDownView(position,convertView,parent).apply{setBackgroundColor(if(dark)0xff1e293b.toInt() else Color.WHITE);(this as? TextView)?.apply{setTextColor(if(dark)Color.WHITE else 0xff172033.toInt());setPadding(dp(14),dp(10),dp(14),dp(10))}}}
+            }
+            setSelection(current.ordinal);setBackgroundColor(if(dark)0xff1e293b.toInt() else 0xfff1f5f9.toInt())
+        }
+    }
+
+    private fun fillColors():LinkedHashMap<String,Int?> = linkedMapOf(
+        "No fill" to null, "Black" to Color.BLACK, "White" to Color.WHITE,
+        "Red" to 0xffdc2626.toInt(), "Orange" to 0xffea580c.toInt(), "Yellow" to 0xffca8a04.toInt(),
+        "Green" to 0xff16a34a.toInt(), "Blue" to 0xff2563eb.toInt(), "Purple" to 0xff7c3aed.toInt(),
+        "Pink" to 0xffdb2777.toInt(), "Teal" to 0xff0f766e.toInt(), "Gray" to 0xff64748b.toInt()
+    )
+
+    private fun fillColorSpinner(current:Int?):Spinner {
+        val colors=fillColors(); val names=colors.keys.toList(); val dark=canvas.darkMode
+        return Spinner(this).apply{
+            adapter=object:ArrayAdapter<String>(this@MainActivity,android.R.layout.simple_spinner_item,names){
+                override fun getView(position:Int,convertView:View?,parent:ViewGroup):View{return super.getView(position,convertView,parent).apply{setBackgroundColor(if(dark)0xff1e293b.toInt() else Color.WHITE);(this as? TextView)?.apply{setTextColor(if(dark)Color.WHITE else 0xff172033.toInt());setPadding(dp(10),dp(8),dp(10),dp(8))}}}
+                override fun getDropDownView(position:Int,convertView:View?,parent:ViewGroup):View{return super.getDropDownView(position,convertView,parent).apply{setBackgroundColor(if(dark)0xff1e293b.toInt() else Color.WHITE);(this as? TextView)?.apply{setTextColor(if(dark)Color.WHITE else 0xff172033.toInt());setPadding(dp(14),dp(10),dp(14),dp(10))}}}
+            }
+            val idx=colors.values.indexOf(current);setSelection(if(idx>=0)idx else 0);setBackgroundColor(if(dark)0xff1e293b.toInt() else 0xfff1f5f9.toInt())
+        }
+    }
 
     private fun connectionColors(): LinkedHashMap<String, Int> = linkedMapOf(
         "Default" to 0xff475569.toInt(), "Black" to Color.BLACK, "White" to Color.WHITE,
@@ -430,11 +471,13 @@ class MainActivity : Activity() {
             setBackgroundColor(if(dark)0xff1e293b.toInt() else 0xfff1f5f9.toInt())
         }
         val color=connectionColorSpinner(c.color)
+        val thickness=thicknessSpinner(c.thickness)
 
         box.addView(editorLabel("Label"));box.addView(label)
         box.addView(editorLabel("Notes"));box.addView(notes)
         box.addView(editorLabel("Arrow"));box.addView(arrows)
         box.addView(editorLabel("Line style"));box.addView(styles)
+        box.addView(editorLabel("Line thickness"));box.addView(thickness)
         box.addView(editorLabel("Line colour"));box.addView(color)
 
         val dialog=dialogBuilder().setTitle("Edit connection").setView(box)
@@ -443,6 +486,7 @@ class MainActivity : Activity() {
                 c.label=label.text.toString();c.notes=notes.text.toString()
                 c.arrowType=ArrowType.values()[arrows.selectedItemPosition]
                 c.lineStyle=LineStyle.values()[styles.selectedItemPosition]
+                c.thickness=LineThickness.values()[thickness.selectedItemPosition]
                 c.color=connectionColors().values.elementAt(color.selectedItemPosition)
                 history.record(before,doc.deepCopy());documentDirty=true;canvas.invalidate();updateUi()
             }.setNegativeButton("Cancel",null).create()
@@ -532,12 +576,14 @@ class MainActivity : Activity() {
     }
 
     private fun showSaveAsTypeMenu(){
-        val labels=listOf("FlowForge JSON","Mermaid","PDF","JPG")
+        val labels=listOf("FlowForge JSON","Mermaid","PNG","PNG Dark","PDF","PDF Dark")
         showCenteredCompactPopup("Save As…",labels){which->when(which){
             0->startSaveAsJson()
             1->startSaveAsMermaid()
-            2->startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply{type="application/pdf";putExtra(Intent.EXTRA_TITLE,"flowchart.pdf");addCategory(Intent.CATEGORY_OPENABLE)},SAVE_PDF)
-            3->startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply{type="image/jpeg";putExtra(Intent.EXTRA_TITLE,"flowchart.jpg");addCategory(Intent.CATEGORY_OPENABLE)},SAVE_IMAGE)
+            2->startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply{type="image/png";putExtra(Intent.EXTRA_TITLE,"flowchart.png");addCategory(Intent.CATEGORY_OPENABLE)},SAVE_IMAGE)
+            3->startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply{type="image/png";putExtra(Intent.EXTRA_TITLE,"flowchart-dark.png");addCategory(Intent.CATEGORY_OPENABLE)},SAVE_IMAGE_DARK)
+            4->startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply{type="application/pdf";putExtra(Intent.EXTRA_TITLE,"flowchart.pdf");addCategory(Intent.CATEGORY_OPENABLE)},SAVE_PDF)
+            5->startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply{type="application/pdf";putExtra(Intent.EXTRA_TITLE,"flowchart-dark.pdf");addCategory(Intent.CATEGORY_OPENABLE)},SAVE_PDF_DARK)
         }}
     }
 
@@ -627,7 +673,7 @@ class MainActivity : Activity() {
                 documentUri=uri; documentName=queryDisplayName(uri) ?: "FlowForge document"; documentDirty=false; touchRecent(uri,documentName); toast("Saved $documentName")
                 pendingAfterSave?.invoke()
             }.onFailure{toast("Could not save document")}.also{pendingAfterSave=null}
-            OPEN_JSON->openJsonDocument(uri); IMPORT_JSON->importJson(uri); OPEN_MERMAID->importMermaid(uri); SAVE_PDF->exportPdf(uri); SAVE_IMAGE->exportJpg(uri)
+            OPEN_JSON->openJsonDocument(uri); IMPORT_JSON->importJson(uri); OPEN_MERMAID->importMermaid(uri); SAVE_PDF->exportPdf(uri,false); SAVE_PDF_DARK->exportPdf(uri,true); SAVE_IMAGE->exportPng(uri,false); SAVE_IMAGE_DARK->exportPng(uri,true)
         }
     }
 
@@ -668,8 +714,27 @@ class MainActivity : Activity() {
         if(documentDirty)dialogBuilder().setTitle("Save changes?").setMessage("\\\"$documentName\\\" has unsaved changes. Save before importing?").setNegativeButton("Cancel",null).setNeutralButton("Don't Save"){_,_->go()}.setPositiveButton("Save"){_,_->saveCurrentThen { go() }}.show() else go()
     }
 
-    private fun exportPdf(uri:Uri){val old=canvas.gridVisible;canvas.gridVisible=prefs.getBoolean("exportGrid",false);val pdf=PdfDocument();val page=pdf.startPage(PdfDocument.PageInfo.Builder(1600,1000,1).create());drawDocument(page.canvas,1600f,1000f);pdf.finishPage(page);contentResolver.openOutputStream(uri)?.use{pdf.writeTo(it)};pdf.close();canvas.gridVisible=old;canvas.invalidate()}
-    private fun exportJpg(uri:Uri){val old=canvas.gridVisible;canvas.gridVisible=prefs.getBoolean("exportGrid",false);val b=Bitmap.createBitmap(1600,1000,Bitmap.Config.ARGB_8888);val c=Canvas(b);c.drawColor(if(canvas.darkMode)0xff0f172a.toInt() else Color.WHITE);drawDocument(c,1600f,1000f);contentResolver.openOutputStream(uri)?.use{b.compress(Bitmap.CompressFormat.JPEG,94,it)};b.recycle();canvas.gridVisible=old;canvas.invalidate()}
+    private fun exportPdf(uri:Uri,dark:Boolean){
+        val oldDark=canvas.darkMode; val oldGrid=canvas.gridVisible
+        canvas.darkMode=dark; canvas.gridVisible=false
+        runCatching{
+            val pdf=PdfDocument(); val page=pdf.startPage(PdfDocument.PageInfo.Builder(1600,1000,1).create())
+            page.canvas.drawColor(if(dark)0xff0f172a.toInt() else Color.WHITE)
+            drawDocument(page.canvas,1600f,1000f); pdf.finishPage(page)
+            contentResolver.openOutputStream(uri)?.use{pdf.writeTo(it)}; pdf.close()
+        }.onFailure{toast("Could not save PDF")}
+        canvas.darkMode=oldDark; canvas.gridVisible=oldGrid; canvas.invalidate(); updateUi()
+    }
+    private fun exportPng(uri:Uri,dark:Boolean){
+        val oldDark=canvas.darkMode; val oldGrid=canvas.gridVisible
+        canvas.darkMode=dark; canvas.gridVisible=false
+        runCatching{
+            val b=Bitmap.createBitmap(1600,1000,Bitmap.Config.ARGB_8888); val c=Canvas(b)
+            c.drawColor(if(dark)0xff0f172a.toInt() else Color.TRANSPARENT); drawDocument(c,1600f,1000f)
+            contentResolver.openOutputStream(uri)?.use{b.compress(Bitmap.CompressFormat.PNG,100,it)}; b.recycle()
+        }.onFailure{toast("Could not save PNG")}
+        canvas.darkMode=oldDark; canvas.gridVisible=oldGrid; canvas.invalidate(); updateUi()
+    }
     private fun drawDocument(target:Canvas,w:Float,h:Float){if(doc.elements.isEmpty())return;val minX=doc.elements.minOf{it.x};val minY=doc.elements.minOf{it.y};val maxX=doc.elements.maxOf{it.x+it.width};val maxY=doc.elements.maxOf{it.y+it.height};val pad=80f;val sx=w/(maxX-minX+pad*2);val sy=h/(maxY-minY+pad*2);val sc=min(sx,sy).coerceAtMost(2f);target.save();target.translate(w/2f-(minX+maxX)/2f*sc,h/2f-(minY+maxY)/2f*sc);target.scale(sc,sc);canvas.drawContentForExport(target);target.restore()}
     private fun undo(){history.undo(doc)?.let{doc=it;canvas.document=doc;canvas.selectedElementId=null;canvas.selectedConnectionId=null;documentDirty=true;canvas.invalidate();updateUi()}}
     private fun redo(){history.redo(doc)?.let{doc=it;canvas.document=doc;canvas.selectedElementId=null;canvas.selectedConnectionId=null;documentDirty=true;canvas.invalidate();updateUi()}}
@@ -704,33 +769,13 @@ class MainActivity : Activity() {
         }
         val grid=check("Show background grid",canvas.gridVisible){canvas.gridVisible=it;prefs.edit().putBoolean("gridVisible",it).apply();canvas.invalidate()}
         val snap=check("Snap blocks to grid",canvas.snapToGrid){canvas.snapToGrid=it;prefs.edit().putBoolean("snapToGrid",it).apply();updateUi()}
-        val eg=check("Include grid in PDF/JPG export",prefs.getBoolean("exportGrid",false)){prefs.edit().putBoolean("exportGrid",it).apply()}
         val darkBox=check("Dark mode",canvas.darkMode){ }
-        val sizes=arrayOf(20f,40f,60f,80f)
-        val spin=Spinner(this).apply{
-            adapter=object: ArrayAdapter<String>(this@MainActivity,android.R.layout.simple_spinner_item,sizes.map{"$it units"}){
-                override fun getView(position:Int,convertView:View?,parent:ViewGroup):View{
-                    return super.getView(position,convertView,parent).apply{
-                        (this as? TextView)?.setTextColor(if(canvas.darkMode)Color.WHITE else 0xff172033.toInt())
-                        setPadding(dp(8),dp(4),dp(8),dp(4))
-                    }
-                }
-                override fun getDropDownView(position:Int,convertView:View?,parent:ViewGroup):View{
-                    return super.getDropDownView(position,convertView,parent).apply{
-                        setBackgroundColor(if(canvas.darkMode)0xff1e293b.toInt() else Color.WHITE)
-                        (this as? TextView)?.setTextColor(if(canvas.darkMode)Color.WHITE else 0xff172033.toInt())
-                    }
-                }
-            }
-            setSelection(sizes.indexOf(canvas.gridSize).coerceAtLeast(0))
-        }
-        val spacing=TextView(this).apply{text="Grid spacing";setTextColor(if(dark)Color.WHITE else 0xff172033.toInt());setPadding(0,dp(12),0,dp(2))}
-        box.addView(grid);box.addView(snap);box.addView(eg);box.addView(darkBox);box.addView(spacing);box.addView(spin)
+        box.addView(grid);box.addView(snap);box.addView(darkBox)
         box.addView(settingsButton("Fit diagram to screen"){canvas.fitContent()})
         box.addView(settingsButton("Reset zoom / position"){canvas.fitContent()})
         box.addView(settingsButton("Manage Building Blocks"){manageAssets()})
         box.addView(settingsButton("Clear Building Blocks"){assets.clear();toast("Building blocks cleared")})
-        val dialog=dialogBuilder().setTitle("Settings").setView(box).setPositiveButton("Done"){_,_->canvas.gridSize=sizes[spin.selectedItemPosition];prefs.edit().putFloat("gridSize",canvas.gridSize).apply();canvas.invalidate()}.setNegativeButton("Cancel",null).create()
+        val dialog=dialogBuilder().setTitle("Settings").setView(box).setPositiveButton("Done",null).setNegativeButton("Cancel",null).create()
         fun restyleSettings(){
             val nowDark=canvas.darkMode
             val textColor=if(nowDark)Color.WHITE else 0xff172033.toInt()
@@ -800,7 +845,7 @@ class MainActivity : Activity() {
         }
     }
     private fun applyPreferences(){canvas.gridVisible=prefs.getBoolean("gridVisible",true);canvas.snapToGrid=prefs.getBoolean("snapToGrid",true);canvas.gridSize=prefs.getFloat("gridSize",40f);canvas.darkMode=prefs.getBoolean("darkMode",false);canvas.document=doc;applyThemeChrome();updateUi()}
-    private fun shapeName(s:ShapeType)=s.name.lowercase().replace('_',' ').replaceFirstChar{it.uppercase()}
+    private fun shapeName(s:ShapeType)=when(s){ShapeType.RECTANGLE->"Rectangle";ShapeType.ROUNDED->"Rounded rectangle";else->s.name.lowercase().replace('_',' ').replaceFirstChar{it.uppercase()}}
     private fun dp(v:Int)= (v * resources.displayMetrics.density).roundToInt()
     private fun toast(s:String)=Toast.makeText(this,s,Toast.LENGTH_SHORT).show()
 }

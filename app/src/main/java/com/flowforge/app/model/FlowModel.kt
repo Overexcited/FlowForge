@@ -8,6 +8,7 @@ enum class ElementType { PROCESS, DECISION, TERMINAL, DATA, SERVER, TEXT, NOTE }
 enum class ShapeType { RECTANGLE, ROUNDED, DIAMOND, OVAL, PARALLELOGRAM, CYLINDER, DOCUMENT, HEXAGON, CLOUD, CIRCLE }
 enum class ArrowType { NONE, END, BOTH, CIRCLE, DIAMOND, REPEATED }
 enum class LineStyle { SOLID, DASHED, DOTTED }
+enum class LineThickness { DEFAULT, MEDIUM, LARGE }
 
 fun defaultShapeFor(type: ElementType): ShapeType = when (type) {
     ElementType.DECISION -> ShapeType.DIAMOND
@@ -28,7 +29,9 @@ data class FlowElement(
     var width: Float = 180f,
     var height: Float = 90f,
     var label: String = "Process",
-    var notes: String = ""
+    var notes: String = "",
+    var outlineThickness: LineThickness = LineThickness.DEFAULT,
+    var fillColor: Int? = null
 ) {
     companion object {
         fun defaultShape(type: ElementType): ShapeType = defaultShapeFor(type)
@@ -43,6 +46,7 @@ data class FlowConnection(
     var arrowType: ArrowType = ArrowType.END,
     var lineStyle: LineStyle = LineStyle.SOLID,
     var color: Int = 0xff475569.toInt(),
+    var thickness: LineThickness = LineThickness.DEFAULT,
     var bendX: Float = 0f,
     var bendY: Float = 0f,
     var notes: String = ""
@@ -58,7 +62,7 @@ data class FlowDocument(
     fun toJson(): String {
         val o = JSONObject()
         o.put("format", "flowforge")
-        o.put("version", 2)
+        o.put("version", 3)
         o.put("title", title)
         val es = JSONArray()
         elements.forEach { e ->
@@ -66,6 +70,8 @@ data class FlowDocument(
                 put("id", e.id); put("type", e.type.name); put("shape", e.shape.name)
                 put("x", e.x); put("y", e.y); put("width", e.width); put("height", e.height)
                 put("label", e.label); put("notes", e.notes)
+                put("outlineThickness", e.outlineThickness.name)
+                if (e.fillColor == null) put("fillColor", JSONObject.NULL) else put("fillColor", e.fillColor)
             })
         }
         val cs = JSONArray()
@@ -73,7 +79,8 @@ data class FlowDocument(
             cs.put(JSONObject().apply {
                 put("id", c.id); put("from", c.fromId); put("to", c.toId)
                 put("label", c.label); put("arrow", c.arrowType.name); put("style", c.lineStyle.name)
-                put("color", c.color); put("bendX", c.bendX); put("bendY", c.bendY); put("notes", c.notes)
+                put("color", c.color); put("thickness", c.thickness.name)
+                put("bendX", c.bendX); put("bendY", c.bendY); put("notes", c.notes)
             })
         }
         o.put("elements", es); o.put("connections", cs)
@@ -89,11 +96,14 @@ data class FlowDocument(
                 val e = es.getJSONObject(i)
                 val type = runCatching { ElementType.valueOf(e.optString("type")) }.getOrDefault(ElementType.PROCESS)
                 val shape = runCatching { ShapeType.valueOf(e.optString("shape")) }.getOrDefault(defaultShapeFor(type))
+                val thickness = runCatching { LineThickness.valueOf(e.optString("outlineThickness")) }.getOrDefault(LineThickness.DEFAULT)
+                val fill = if (e.has("fillColor") && !e.isNull("fillColor")) e.optInt("fillColor") else null
                 d.elements += FlowElement(
                     id = e.optString("id", UUID.randomUUID().toString()), type = type, shape = shape,
                     x = e.optDouble("x", 300.0).toFloat(), y = e.optDouble("y", 300.0).toFloat(),
                     width = e.optDouble("width", 180.0).toFloat(), height = e.optDouble("height", 90.0).toFloat(),
-                    label = e.optString("label", "Process"), notes = e.optString("notes", "")
+                    label = e.optString("label", "Process"), notes = e.optString("notes", ""),
+                    outlineThickness = thickness, fillColor = fill
                 )
             }
             val cs = o.optJSONArray("connections") ?: JSONArray()
@@ -105,6 +115,7 @@ data class FlowDocument(
                     arrowType = runCatching { ArrowType.valueOf(c.optString("arrow")) }.getOrDefault(ArrowType.END),
                     lineStyle = runCatching { LineStyle.valueOf(c.optString("style")) }.getOrDefault(LineStyle.SOLID),
                     color = c.optInt("color", 0xff475569.toInt()),
+                    thickness = runCatching { LineThickness.valueOf(c.optString("thickness")) }.getOrDefault(LineThickness.DEFAULT),
                     bendX = c.optDouble("bendX", 0.0).toFloat(), bendY = c.optDouble("bendY", 0.0).toFloat(),
                     notes = c.optString("notes", "")
                 )

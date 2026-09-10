@@ -79,20 +79,29 @@ class FlowCanvasView(context: Context) : View(context) {
         var y = top; while (y <= bottom) { c.drawLine(left, y, right, y, gridPaint); y += gridSize }
     }
 
+    private fun outlineWidth(e: FlowElement): Float = when (e.outlineThickness) {
+        LineThickness.DEFAULT -> 2.5f
+        LineThickness.MEDIUM -> 5f
+        LineThickness.LARGE -> 7.5f
+    }
+
+    private fun connectionWidth(c: FlowConnection): Float = when (c.thickness) {
+        LineThickness.DEFAULT -> 3.5f
+        LineThickness.MEDIUM -> 5f
+        LineThickness.LARGE -> 7f
+    }
+
     private fun drawElement(c: Canvas, e: FlowElement) {
         val r = RectF(e.x, e.y, e.x + e.width, e.y + e.height)
-        paint.style = Paint.Style.FILL
-        paint.color = if (darkMode) when (e.type) {
-            ElementType.SERVER -> 0xff1e3a5f.toInt(); ElementType.DECISION -> 0xff594a16.toInt()
-            ElementType.TERMINAL -> 0xff164e3b.toInt(); ElementType.DATA -> 0xff4a2857.toInt(); else -> 0xff1e293b.toInt()
-        } else when (e.type) {
-            ElementType.SERVER -> 0xffe8f1ff.toInt(); ElementType.DECISION -> 0xfffff3cd.toInt()
-            ElementType.TERMINAL -> 0xffe8f5e9.toInt(); ElementType.DATA -> 0xfff3e5f5.toInt(); else -> 0xfff7f7f8.toInt()
+        if (e.fillColor != null) {
+            paint.style = Paint.Style.FILL
+            paint.color = e.fillColor!!
+            drawShape(c, e, r)
         }
-        drawShape(c, e, r, fill = true)
-        paint.style = Paint.Style.STROKE; paint.strokeWidth = if (e.id == selectedElementId) 5f else 2.5f
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = if (e.id == selectedElementId) maxOf(5f, outlineWidth(e)) else outlineWidth(e)
         paint.color = if (e.id == selectedElementId) 0xff2563eb.toInt() else if (darkMode) 0xff94a3b8.toInt() else 0xff334155.toInt()
-        drawShape(c, e, r, fill = false)
+        drawShape(c, e, r)
         textPaint.color = if (darkMode) Color.WHITE else 0xff172033.toInt(); textPaint.textSize = 25f
         val maxChars = max(8, (e.width / 15f).toInt()); val lines = wrap(e.label, maxChars).take(4)
         val lineH = 29f; val base = e.y + e.height / 2f - (lines.size - 1) * lineH / 2f + 9f
@@ -100,8 +109,7 @@ class FlowCanvasView(context: Context) : View(context) {
         if (e.notes.isNotBlank()) drawBadge(c, e.x + e.width - 14f, e.y + 14f, true)
     }
 
-    private fun drawShape(c: Canvas, e: FlowElement, r: RectF, fill: Boolean) {
-        if (!fill && e.shape == ShapeType.DOCUMENT) { /* normal outline below */ }
+    private fun drawShape(c: Canvas, e: FlowElement, r: RectF) {
         when (e.shape) {
             ShapeType.RECTANGLE -> c.drawRect(r, paint)
             ShapeType.ROUNDED -> c.drawRoundRect(r, 18f, 18f, paint)
@@ -135,7 +143,7 @@ class FlowCanvasView(context: Context) : View(context) {
         val (p1,p2)=connectionEndpoints(a,b,pairIndex,pair.size)
         val path=buildConnectionPath(p1,p2,con.bendX,con.bendY,pairIndex)
         paint.style=Paint.Style.STROKE
-        paint.strokeWidth=if(con.id==selectedConnectionId)7f else 3.5f
+        paint.strokeWidth=if(con.id==selectedConnectionId)7f else connectionWidth(con)
         paint.color=if(con.id==selectedConnectionId)0xff2563eb.toInt() else con.color
         paint.pathEffect=when(con.lineStyle){LineStyle.DASHED->DashPathEffect(floatArrayOf(18f,12f),0f);LineStyle.DOTTED->DashPathEffect(floatArrayOf(4f,10f),0f);else->null}
         c.drawPath(path,paint);paint.pathEffect=null
@@ -158,34 +166,20 @@ class FlowCanvasView(context: Context) : View(context) {
     }
 
     private fun buildConnectionPath(p1:PointF,p2:PointF,bx:Float,by:Float,index:Int):Path{
-        val p=Path()
-        p.moveTo(p1.x,p1.y)
+        val p=Path();p.moveTo(p1.x,p1.y)
         val dx=p2.x-p1.x; val dy=p2.y-p1.y
-        if(bx!=0f||by!=0f){
-            p.quadTo((p1.x+p2.x)/2f+bx,(p1.y+p2.y)/2f+by,p2.x,p2.y)
-        }else if(abs(dy)>=abs(dx)){
-            val mid=(p1.y+p2.y)/2f + if(index%2==0) 0f else 18f
-            p.cubicTo(p1.x,mid,p2.x,mid,p2.x,p2.y)
-        }else{
-            val mid=(p1.x+p2.x)/2f + if(index%2==0) 0f else 18f
-            p.cubicTo(mid,p1.y,mid,p2.y,p2.x,p2.y)
-        }
+        if(bx!=0f||by!=0f){p.quadTo((p1.x+p2.x)/2f+bx,(p1.y+p2.y)/2f+by,p2.x,p2.y)}
+        else if(abs(dy)>=abs(dx)){val mid=(p1.y+p2.y)/2f + if(index%2==0) 0f else 18f;p.cubicTo(p1.x,mid,p2.x,mid,p2.x,p2.y)}
+        else{val mid=(p1.x+p2.x)/2f + if(index%2==0) 0f else 18f;p.cubicTo(mid,p1.y,mid,p2.y,p2.x,p2.y)}
         return p
     }
 
-    private fun connectionMidpoint(p1:PointF,p2:PointF,bx:Float,by:Float,index:Int):PointF{
-        return PointF((p1.x+p2.x)/2f+bx/2f,(p1.y+p2.y)/2f+by/2f)
-    }
+    private fun connectionMidpoint(p1:PointF,p2:PointF,bx:Float,by:Float,index:Int)=PointF((p1.x+p2.x)/2f+bx/2f,(p1.y+p2.y)/2f+by/2f)
 
     private fun pathTangent(p1:PointF,p2:PointF,bx:Float,by:Float,index:Int):Pair<PointF,PointF>{
         val dx=p2.x-p1.x; val dy=p2.y-p1.y
-        return if(abs(dy)>=abs(dx)){
-            val mid=(p1.y+p2.y)/2f + if(index%2==0)0f else 18f
-            PointF(p2.x,mid) to p2
-        }else{
-            val mid=(p1.x+p2.x)/2f + if(index%2==0)0f else 18f
-            PointF(mid,p2.y) to p2
-        }
+        return if(abs(dy)>=abs(dx)){val mid=(p1.y+p2.y)/2f + if(index%2==0)0f else 18f;PointF(p2.x,mid) to p2}
+        else{val mid=(p1.x+p2.x)/2f + if(index%2==0)0f else 18f;PointF(mid,p2.y) to p2}
     }
 
     private fun drawConnectionPreview(c:Canvas){
@@ -207,69 +201,36 @@ class FlowCanvasView(context: Context) : View(context) {
     }
 
     private fun drawRepeatedArrows(c:Canvas,path:Path){
-        val measure=PathMeasure(path,false)
-        val length=measure.length
-        if(length<=1f)return
-        val pos=FloatArray(2); val tan=FloatArray(2)
-        var d=55f
-        while(d<length-12f){
-            if(measure.getPosTan(d,pos,tan)){
-                drawArrow(c,pos[0]-tan[0]*8f,pos[1]-tan[1]*8f,pos[0],pos[1],ArrowType.END)
-            }
-            d+=70f
-        }
+        val measure=PathMeasure(path,false);val length=measure.length;if(length<=1f)return
+        val pos=FloatArray(2);val tan=FloatArray(2);var d=55f
+        while(d<length-12f){if(measure.getPosTan(d,pos,tan))drawArrow(c,pos[0]-tan[0]*8f,pos[1]-tan[1]*8f,pos[0],pos[1],ArrowType.END);d+=70f}
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         scaleDetector.onTouchEvent(event)
         when(event.actionMasked){
             MotionEvent.ACTION_DOWN->{
-                gestureMoved=false;lastX=event.x;lastY=event.y
-                val w=world(event.x,event.y)
-                if(connectionMode){
-                    val hit=hitElement(w.x,w.y)
-                    if(connectionStartId==null && hit!=null){connectionStartId=hit.id;selectedElementId=hit.id;selectedConnectionId=null;connectionPreview.set(w.x,w.y);invalidate();onSelectionChanged?.invoke();return true}
-                    if(connectionStartId!=null){connectionPreview.set(w.x,w.y);invalidate();return true}
-                }
+                gestureMoved=false;lastX=event.x;lastY=event.y;val w=world(event.x,event.y)
+                if(connectionMode){val hit=hitElement(w.x,w.y);if(connectionStartId==null&&hit!=null){connectionStartId=hit.id;selectedElementId=hit.id;selectedConnectionId=null;connectionPreview.set(w.x,w.y);invalidate();onSelectionChanged?.invoke();return true};if(connectionStartId!=null){connectionPreview.set(w.x,w.y);invalidate();return true}}
                 val selected=selectedElement()
-                if(selected!=null){
-                    // Check resize handles before the notes badge. The top-right handle and
-                    // notes badge can occupy nearby screen space, and the handles must win.
-                    val h=handleAt(selected,w.x,w.y)
-                    if(h!=Handle.NONE){
-                        resizeId=selected.id
-                        resizeHandle=h
-                        dragId=null
-                        startResize=RectF(selected.x,selected.y,selected.x+selected.width,selected.y+selected.height)
-                        return true
-                    }
-                    if(!lastNotesButton.isEmpty && lastNotesButton.contains(w.x,w.y)){onNotesTap?.invoke(selected);return true}
-                }
+                if(selected!=null){val h=handleAt(selected,w.x,w.y);if(h!=Handle.NONE){resizeId=selected.id;resizeHandle=h;dragId=null;startResize=RectF(selected.x,selected.y,selected.x+selected.width,selected.y+selected.height);return true};if(!lastNotesButton.isEmpty&&lastNotesButton.contains(w.x,w.y)){onNotesTap?.invoke(selected);return true}}
                 val hit=hitElement(w.x,w.y)
-                if(hit!=null){selectedElementId=hit.id;selectedConnectionId=null;dragId=hit.id;dragOffsetX=w.x-hit.x;dragOffsetY=w.y-hit.y;startMoveX=hit.x;startMoveY=hit.y
-                    val now=System.currentTimeMillis();if(now-lastTap<300)onDoubleTapElement?.invoke(hit);lastTap=now
-                }else{selectedElementId=null;selectedConnectionId=hitConnection(w.x,w.y)?.id}
+                if(hit!=null){selectedElementId=hit.id;selectedConnectionId=null;dragId=hit.id;dragOffsetX=w.x-hit.x;dragOffsetY=w.y-hit.y;startMoveX=hit.x;startMoveY=hit.y;val now=System.currentTimeMillis();if(now-lastTap<300)onDoubleTapElement?.invoke(hit);lastTap=now}
+                else{selectedElementId=null;selectedConnectionId=hitConnection(w.x,w.y)?.id}
                 onSelectionChanged?.invoke();invalidate();return true
             }
             MotionEvent.ACTION_MOVE->{
-                if(event.pointerCount>1){gestureMoved=true;return true}
-                val w=world(event.x,event.y)
-                if(connectionMode && connectionStartId!=null){connectionPreview.set(w.x,w.y);gestureMoved=true;invalidate();return true}
-                if(resizeId!=null){resize(selectedElement() ?: return true,w.x,w.y);gestureMoved=true}
+                if(event.pointerCount>1){gestureMoved=true;return true};val w=world(event.x,event.y)
+                if(connectionMode&&connectionStartId!=null){connectionPreview.set(w.x,w.y);gestureMoved=true;invalidate();return true}
+                if(resizeId!=null){resize(selectedElement()?:return true,w.x,w.y);gestureMoved=true}
                 else if(dragId!=null){selectedElement()?.let{it.x=w.x-dragOffsetX;it.y=w.y-dragOffsetY;if(snapToGrid){it.x=round(it.x/gridSize)*gridSize;it.y=round(it.y/gridSize)*gridSize}};gestureMoved=true}
-                else {panX+=event.x-lastX;panY+=event.y-lastY;gestureMoved=true}
+                else{panX+=event.x-lastX;panY+=event.y-lastY;gestureMoved=true}
                 lastX=event.x;lastY=event.y;invalidate();return true
             }
             MotionEvent.ACTION_UP->{
-                if(connectionMode && connectionStartId!=null){
-                    val w=world(event.x,event.y);val target=hitElement(w.x,w.y);val source=connectionStartId
-                    if(target!=null && target.id!=source){onConnectionRequested?.invoke(source!!,target.id);return true}
-                    if(!gestureMoved && target==null){connectionStartId=null;invalidate();onSelectionChanged?.invoke()}
-                    return true
-                }
-                val e=selectedElement()
-                if(dragId!=null && e!=null && (e.x!=startMoveX||e.y!=startMoveY)) onMoveFinished?.invoke(e,startMoveX,startMoveY)
-                if(resizeId!=null && e!=null){val old=startResize;if(old.left!=e.x||old.top!=e.y||old.width()!=e.width||old.height()!=e.height)onResizeFinished?.invoke(e,old.left,old.top,old.width(),old.height())}
+                if(connectionMode&&connectionStartId!=null){val w=world(event.x,event.y);val target=hitElement(w.x,w.y);val source=connectionStartId;if(target!=null&&target.id!=source){onConnectionRequested?.invoke(source!!,target.id);return true};if(!gestureMoved&&target==null){connectionStartId=null;invalidate();onSelectionChanged?.invoke()};return true}
+                val e=selectedElement();if(dragId!=null&&e!=null&&(e.x!=startMoveX||e.y!=startMoveY))onMoveFinished?.invoke(e,startMoveX,startMoveY)
+                if(resizeId!=null&&e!=null){val old=startResize;if(old.left!=e.x||old.top!=e.y||old.width()!=e.width||old.height()!=e.height)onResizeFinished?.invoke(e,old.left,old.top,old.width(),old.height())}
                 dragId=null;resizeId=null;resizeHandle=Handle.NONE;return true
             }
             MotionEvent.ACTION_CANCEL->{dragId=null;resizeId=null;resizeHandle=Handle.NONE;if(connectionMode)cancelConnectionMode();return true}
@@ -277,28 +238,13 @@ class FlowCanvasView(context: Context) : View(context) {
     }
 
     private fun resize(e:FlowElement,x:Float,y:Float){
-        var l=e.x;var t=e.y;var r=e.x+e.width;var b=e.y+e.height; val minW=70f;val minH=45f
+        var l=e.x;var t=e.y;var r=e.x+e.width;var b=e.y+e.height;val minW=70f;val minH=45f
         when(resizeHandle){Handle.TL->{l=min(x,r-minW);t=min(y,b-minH)};Handle.T->{t=min(y,b-minH)};Handle.TR->{r=max(x,l+minW);t=min(y,b-minH)};Handle.L->{l=min(x,r-minW)};Handle.R->{r=max(x,l+minW)};Handle.BL->{l=min(x,r-minW);b=max(y,t+minH)};Handle.B->{b=max(y,t+minH)};Handle.BR->{r=max(x,l+minW);b=max(y,t+minH)};else->Unit}
         if(snapToGrid){l=round(l/gridSize)*gridSize;t=round(t/gridSize)*gridSize;r=round(r/gridSize)*gridSize;b=round(b/gridSize)*gridSize}
         e.x=l;e.y=t;e.width=r-l;e.height=b-t
     }
-
     private fun handlePoints(r:RectF)=listOf(PointF(r.left,r.top),PointF(r.centerX(),r.top),PointF(r.right,r.top),PointF(r.left,r.centerY()),PointF(r.right,r.centerY()),PointF(r.left,r.bottom),PointF(r.centerX(),r.bottom),PointF(r.right,r.bottom))
-    private fun handleAt(e:FlowElement,x:Float,y:Float):Handle{
-        val r=RectF(e.x,e.y,e.x+e.width,e.y+e.height)
-        val margin=maxOf(34f/scale,22f)
-        fun near(px:Float,py:Float)=hypot(x-px,y-py)<=margin
-        // Corners get first priority and a deliberately generous touch target.
-        if(near(r.left,r.top)) return Handle.TL
-        if(near(r.right,r.top)) return Handle.TR
-        if(near(r.left,r.bottom)) return Handle.BL
-        if(near(r.right,r.bottom)) return Handle.BR
-        if(abs(y-r.top)<=margin && x>=r.left-margin && x<=r.right+margin) return Handle.T
-        if(abs(y-r.bottom)<=margin && x>=r.left-margin && x<=r.right+margin) return Handle.B
-        if(abs(x-r.left)<=margin && y>=r.top-margin && y<=r.bottom+margin) return Handle.L
-        if(abs(x-r.right)<=margin && y>=r.top-margin && y<=r.bottom+margin) return Handle.R
-        return Handle.NONE
-    }
+    private fun handleAt(e:FlowElement,x:Float,y:Float):Handle{val r=RectF(e.x,e.y,e.x+e.width,e.y+e.height);val margin=maxOf(34f/scale,22f);fun near(px:Float,py:Float)=hypot(x-px,y-py)<=margin;if(near(r.left,r.top))return Handle.TL;if(near(r.right,r.top))return Handle.TR;if(near(r.left,r.bottom))return Handle.BL;if(near(r.right,r.bottom))return Handle.BR;if(abs(y-r.top)<=margin&&x>=r.left-margin&&x<=r.right+margin)return Handle.T;if(abs(y-r.bottom)<=margin&&x>=r.left-margin&&x<=r.right+margin)return Handle.B;if(abs(x-r.left)<=margin&&y>=r.top-margin&&y<=r.bottom+margin)return Handle.L;if(abs(x-r.right)<=margin&&y>=r.top-margin&&y<=r.bottom+margin)return Handle.R;return Handle.NONE}
     private fun world(x:Float,y:Float)=PointF((x-panX)/scale,(y-panY)/scale)
     private fun selectedElement()=document.elements.firstOrNull{it.id==selectedElementId}
     private fun hitElement(x:Float,y:Float)=document.elements.asReversed().firstOrNull{hitShape(it,x,y)}
@@ -306,21 +252,11 @@ class FlowCanvasView(context: Context) : View(context) {
     private fun hitConnection(x:Float,y:Float):FlowConnection?{
         val threshold=maxOf(22f,24f/scale)
         return document.connections.asReversed().firstOrNull{con->
-            val a=document.elements.firstOrNull{it.id==con.fromId} ?: return@firstOrNull false
-            val b=document.elements.firstOrNull{it.id==con.toId} ?: return@firstOrNull false
-            val pair=document.connections.filter{(it.fromId==con.fromId && it.toId==con.toId)||(it.fromId==con.toId && it.toId==con.fromId)}.sortedBy{it.id}
-            val index=pair.indexOfFirst{it.id==con.id}.coerceAtLeast(0)
-            val (p1,p2)=connectionEndpoints(a,b,index,pair.size)
-            val path=buildConnectionPath(p1,p2,con.bendX,con.bendY,index)
-            val pm=PathMeasure(path,false)
-            val pos=FloatArray(2)
-            var d=0f
-            var hit=false
-            while(d<=pm.length){
-                if(pm.getPosTan(d,pos,null) && hypot(x-pos[0],y-pos[1])<=threshold){hit=true;break}
-                d+=maxOf(6f,threshold/2f)
-            }
-            hit
+            val a=document.elements.firstOrNull{it.id==con.fromId}?:return@firstOrNull false
+            val b=document.elements.firstOrNull{it.id==con.toId}?:return@firstOrNull false
+            val pair=document.connections.filter{(it.fromId==con.fromId&&it.toId==con.toId)||(it.fromId==con.toId&&it.toId==con.fromId)}.sortedBy{it.id}
+            val index=pair.indexOfFirst{it.id==con.id}.coerceAtLeast(0);val(p1,p2)=connectionEndpoints(a,b,index,pair.size);val path=buildConnectionPath(p1,p2,con.bendX,con.bendY,index);val pm=PathMeasure(path,false);val pos=FloatArray(2);var d=0f;var hit=false
+            while(d<=pm.length){if(pm.getPosTan(d,pos,null)&&hypot(x-pos[0],y-pos[1])<=threshold){hit=true;break};d+=maxOf(6f,threshold/2f)};hit
         }
     }
     private fun wrap(s:String,max:Int):List<String>{if(s.isBlank())return listOf("");val out=mutableListOf<String>();var rest=s;while(rest.length>max){val cut=rest.substring(0,max).lastIndexOf(' ').let{if(it>0)it else max};out+=rest.substring(0,cut);rest=rest.substring(cut).trimStart()};out+=rest;return out}
