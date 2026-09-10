@@ -93,7 +93,7 @@ class MainActivity : Activity() {
 
         status = TextView(this).apply {
             textSize = 12f; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(12), 0, dp(12), 0)
-            setTextColor(if (canvas.darkMode) 0xffcbd5e1.toInt() else 0xff475569.toInt()); setBackgroundColor(if (canvas.darkMode) 0xff273449.toInt() else 0xffe2e8f0.toInt())
+            setTextColor(Color.WHITE); setBackgroundColor(if (canvas.darkMode) 0xff273449.toInt() else 0xffe2e8f0.toInt())
         }
         content.addView(status, LinearLayout.LayoutParams(-1, dp(28)))
 
@@ -339,6 +339,7 @@ class MainActivity : Activity() {
         val thicknesses=arrayOf(LineThickness.DEFAULT,LineThickness.MEDIUM,LineThickness.LARGE)
         val thicknessSpinner=thicknessSpinner(e.outlineThickness)
         val fillSpinner=fillColorSpinner(e.fillColor)
+        val outlineSpinner=outlineColorSpinner(e.outlineColor)
         fun sentence(value:String)=value.lowercase().replaceFirstChar{it.uppercase()}
         val spinner=Spinner(this).apply{
             adapter=object:ArrayAdapter<String>(this@MainActivity,android.R.layout.simple_spinner_item,shapes.map{sentence(shapeName(it))}){
@@ -349,18 +350,20 @@ class MainActivity : Activity() {
         box.addView(editorLabel("Label"));box.addView(label)
         box.addView(editorLabel("Shape"));box.addView(spinner)
         box.addView(editorLabel("Outline thickness"));box.addView(thicknessSpinner)
+        box.addView(editorLabel("Outline Color"));box.addView(outlineSpinner)
         box.addView(editorLabel("Fill colour"));box.addView(fillSpinner)
         box.addView(editorLabel("Notes"));box.addView(notes)
         val dialog=dialogBuilder().setTitle("Edit Block").setView(box).setPositiveButton("Save"){_,_->
             val before=doc.deepCopy();e.label=label.text.toString();e.notes=notes.text.toString();e.shape=shapes[spinner.selectedItemPosition]
             e.outlineThickness=thicknesses[thicknessSpinner.selectedItemPosition]
+            e.outlineColor=outlineColors().values.elementAt(outlineSpinner.selectedItemPosition)
             e.fillColor=fillColors().values.elementAt(fillSpinner.selectedItemPosition)
             history.record(before,doc.deepCopy());documentDirty=true;canvas.invalidate();updateUi()
         }.setNeutralButton("Reset default"){_,_->resetElement(e)}.setNegativeButton("Cancel",null).create()
         dialog.setOnShowListener{val textColor=if(dark)Color.WHITE else 0xff172033.toInt();dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(textColor);dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.setTextColor(textColor);dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.setTextColor(textColor);dialog.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(if(dark)0xff0f172a.toInt() else Color.WHITE))}
         dialog.show()
     }
-    private fun resetElement(e:FlowElement){val before=doc.deepCopy();e.shape=FlowElement.defaultShape(e.type);e.width=180f;e.height=90f;e.outlineThickness=LineThickness.DEFAULT;e.fillColor=null;history.record(before,doc.deepCopy());canvas.invalidate();updateUi()}
+    private fun resetElement(e:FlowElement){val before=doc.deepCopy();e.shape=FlowElement.defaultShape(e.type);e.width=180f;e.height=90f;e.outlineThickness=LineThickness.DEFAULT;e.outlineColor=null;e.fillColor=null;history.record(before,doc.deepCopy());canvas.invalidate();updateUi()}
 
     private fun thicknessSpinner(current:LineThickness):Spinner {
         val names=listOf("Default","Medium","Large"); val dark=canvas.darkMode
@@ -384,6 +387,24 @@ class MainActivity : Activity() {
         val colors=fillColors(); val names=colors.keys.toList(); val dark=canvas.darkMode
         return Spinner(this).apply{
             adapter=object:ArrayAdapter<String>(this@MainActivity,android.R.layout.simple_spinner_item,names){
+                override fun getView(position:Int,convertView:View?,parent:ViewGroup):View{return super.getView(position,convertView,parent).apply{setBackgroundColor(if(dark)0xff1e293b.toInt() else Color.WHITE);(this as? TextView)?.apply{setTextColor(if(dark)Color.WHITE else 0xff172033.toInt());setPadding(dp(10),dp(8),dp(10),dp(8))}}}
+                override fun getDropDownView(position:Int,convertView:View?,parent:ViewGroup):View{return super.getDropDownView(position,convertView,parent).apply{setBackgroundColor(if(dark)0xff1e293b.toInt() else Color.WHITE);(this as? TextView)?.apply{setTextColor(if(dark)Color.WHITE else 0xff172033.toInt());setPadding(dp(14),dp(10),dp(14),dp(10))}}}
+            }
+            val idx=colors.values.indexOf(current);setSelection(if(idx>=0)idx else 0);setBackgroundColor(if(dark)0xff1e293b.toInt() else 0xfff1f5f9.toInt())
+        }
+    }
+
+    private fun outlineColors(): LinkedHashMap<String, Int?> = linkedMapOf(
+        "Default" to null, "Black" to Color.BLACK, "White" to Color.WHITE,
+        "Red" to 0xffdc2626.toInt(), "Orange" to 0xffea580c.toInt(), "Yellow" to 0xffca8a04.toInt(),
+        "Green" to 0xff16a34a.toInt(), "Blue" to 0xff2563eb.toInt(), "Purple" to 0xff7c3aed.toInt(),
+        "Pink" to 0xffdb2777.toInt(), "Teal" to 0xff0f766e.toInt(), "Gray" to 0xff64748b.toInt()
+    )
+
+    private fun outlineColorSpinner(current:Int?): Spinner {
+        val colors=outlineColors(); val names=colors.keys.toList(); val dark=canvas.darkMode
+        return Spinner(this).apply{
+            adapter=object: ArrayAdapter<String>(this@MainActivity,android.R.layout.simple_spinner_item,names){
                 override fun getView(position:Int,convertView:View?,parent:ViewGroup):View{return super.getView(position,convertView,parent).apply{setBackgroundColor(if(dark)0xff1e293b.toInt() else Color.WHITE);(this as? TextView)?.apply{setTextColor(if(dark)Color.WHITE else 0xff172033.toInt());setPadding(dp(10),dp(8),dp(10),dp(8))}}}
                 override fun getDropDownView(position:Int,convertView:View?,parent:ViewGroup):View{return super.getDropDownView(position,convertView,parent).apply{setBackgroundColor(if(dark)0xff1e293b.toInt() else Color.WHITE);(this as? TextView)?.apply{setTextColor(if(dark)Color.WHITE else 0xff172033.toInt());setPadding(dp(14),dp(10),dp(14),dp(10))}}}
             }

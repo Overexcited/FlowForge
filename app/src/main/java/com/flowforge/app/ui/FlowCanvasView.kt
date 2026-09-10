@@ -81,14 +81,14 @@ class FlowCanvasView(context: Context) : View(context) {
 
     private fun outlineWidth(e: FlowElement): Float = when (e.outlineThickness) {
         LineThickness.DEFAULT -> 2.5f
-        LineThickness.MEDIUM -> 5f
-        LineThickness.LARGE -> 7.5f
+        LineThickness.MEDIUM -> 7.5f
+        LineThickness.LARGE -> 15f
     }
 
     private fun connectionWidth(c: FlowConnection): Float = when (c.thickness) {
         LineThickness.DEFAULT -> 3.5f
-        LineThickness.MEDIUM -> 5f
-        LineThickness.LARGE -> 7f
+        LineThickness.MEDIUM -> 7f
+        LineThickness.LARGE -> 14f
     }
 
     private fun drawElement(c: Canvas, e: FlowElement) {
@@ -100,7 +100,7 @@ class FlowCanvasView(context: Context) : View(context) {
         }
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = if (e.id == selectedElementId) maxOf(5f, outlineWidth(e)) else outlineWidth(e)
-        paint.color = if (e.id == selectedElementId) 0xff2563eb.toInt() else if (darkMode) 0xff94a3b8.toInt() else 0xff334155.toInt()
+        paint.color = if (e.id == selectedElementId) 0xff2563eb.toInt() else (e.outlineColor ?: if (darkMode) 0xff94a3b8.toInt() else 0xff334155.toInt())
         drawShape(c, e, r)
         textPaint.color = if (darkMode) Color.WHITE else 0xff172033.toInt(); textPaint.textSize = 25f
         val maxChars = max(8, (e.width / 15f).toInt()); val lines = wrap(e.label, maxChars).take(4)

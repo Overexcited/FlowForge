@@ -31,7 +31,8 @@ data class FlowElement(
     var label: String = "Process",
     var notes: String = "",
     var outlineThickness: LineThickness = LineThickness.DEFAULT,
-    var fillColor: Int? = null
+    var fillColor: Int? = null,
+    var outlineColor: Int? = null
 ) {
     companion object {
         fun defaultShape(type: ElementType): ShapeType = defaultShapeFor(type)
@@ -71,6 +72,7 @@ data class FlowDocument(
                 put("x", e.x); put("y", e.y); put("width", e.width); put("height", e.height)
                 put("label", e.label); put("notes", e.notes)
                 put("outlineThickness", e.outlineThickness.name)
+                if (e.outlineColor == null) put("outlineColor", JSONObject.NULL) else put("outlineColor", e.outlineColor)
                 if (e.fillColor == null) put("fillColor", JSONObject.NULL) else put("fillColor", e.fillColor)
             })
         }
@@ -98,12 +100,13 @@ data class FlowDocument(
                 val shape = runCatching { ShapeType.valueOf(e.optString("shape")) }.getOrDefault(defaultShapeFor(type))
                 val thickness = runCatching { LineThickness.valueOf(e.optString("outlineThickness")) }.getOrDefault(LineThickness.DEFAULT)
                 val fill = if (e.has("fillColor") && !e.isNull("fillColor")) e.optInt("fillColor") else null
+                val outlineColor = if (e.has("outlineColor") && !e.isNull("outlineColor")) e.optInt("outlineColor") else null
                 d.elements += FlowElement(
                     id = e.optString("id", UUID.randomUUID().toString()), type = type, shape = shape,
                     x = e.optDouble("x", 300.0).toFloat(), y = e.optDouble("y", 300.0).toFloat(),
                     width = e.optDouble("width", 180.0).toFloat(), height = e.optDouble("height", 90.0).toFloat(),
                     label = e.optString("label", "Process"), notes = e.optString("notes", ""),
-                    outlineThickness = thickness, fillColor = fill
+                    outlineThickness = thickness, fillColor = fill, outlineColor = outlineColor
                 )
             }
             val cs = o.optJSONArray("connections") ?: JSONArray()
