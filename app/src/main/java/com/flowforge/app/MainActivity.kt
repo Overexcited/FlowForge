@@ -93,7 +93,7 @@ class MainActivity : Activity() {
 
         status = TextView(this).apply {
             textSize = 12f; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(12), 0, dp(12), 0)
-            setTextColor(if (canvas.darkMode) 0xffcbd5e1.toInt() else 0xff475569.toInt()); setBackgroundColor(if (canvas.darkMode) 0xff1e293b.toInt() else 0xffe2e8f0.toInt())
+            setTextColor(if (canvas.darkMode) 0xffcbd5e1.toInt() else 0xff475569.toInt()); setBackgroundColor(if (canvas.darkMode) 0xff273449.toInt() else 0xffe2e8f0.toInt())
         }
         content.addView(status, LinearLayout.LayoutParams(-1, dp(28)))
 
@@ -164,8 +164,9 @@ class MainActivity : Activity() {
         redoButton?.isEnabled=history.canRedo(); redoButton?.alpha=if(history.canRedo())1f else 0.45f
         contextBar?.setBackgroundColor(if(canvas.darkMode)0xff111827.toInt() else 0xfff8fafc.toInt())
         contextScroll?.setBackgroundColor(if(canvas.darkMode)0xff111827.toInt() else 0xfff8fafc.toInt())
-        val mode = if (canvas.connectionMode) " • Draw connection: tap/drag from one block to another" else ""
-        status?.text="${documentName}${if(documentDirty)" • Unsaved" else ""}  •  ${doc.elements.size} elements  •  ${doc.connections.size} connections$mode"
+        status?.setBackgroundColor(if(canvas.darkMode)0xff273449.toInt() else 0xffe2e8f0.toInt())
+        val mode = if (canvas.connectionMode) " • Draw to Connect: tap/drag from one block to another" else ""
+        status?.text="${documentName}${if(documentDirty)" • Unsaved" else ""}  •  ${doc.elements.size} blocks  •  ${doc.connections.size} connections$mode"
         val bar=contextBar ?: return
         val scroll=contextScroll ?: return
         bar.removeAllViews()
@@ -191,7 +192,7 @@ class MainActivity : Activity() {
             bar.addView(Space(this), LinearLayout.LayoutParams(0,1,1f))
         } else if(canvas.connectionMode){
             bar.visibility=View.VISIBLE; scroll.visibility=View.VISIBLE
-            bar.addView(TextView(this).apply{text="Connection mode";textSize=12f;setTextColor(if(canvas.darkMode)Color.WHITE else 0xff172033.toInt());setPadding(4,0,dp(8),0)},LinearLayout.LayoutParams(0,WRAP_CONTENT,1f))
+            bar.addView(TextView(this).apply{text="Draw to Connect";textSize=12f;setTextColor(if(canvas.darkMode)Color.WHITE else 0xff172033.toInt());setPadding(4,0,dp(8),0)},LinearLayout.LayoutParams(0,WRAP_CONTENT,1f))
             bar.addView(smallButton("Cancel"){canvas.cancelConnectionMode()})
         } else {
             bar.visibility=View.GONE; scroll.visibility=View.GONE
@@ -218,7 +219,7 @@ class MainActivity : Activity() {
                 2->saveAs()
                 3->openDocument()
                 4->canvas.fitContent()
-                5->canvas.resetViewport()
+                5->canvas.fitContent()
                 6->importMenu()
                 7->settings()
             }}.show()
@@ -226,7 +227,7 @@ class MainActivity : Activity() {
 
     private fun addMenu(){
         val anchor=addButton ?: return
-        showCompactPopup(anchor,"Add",listOf("New canvas","New element","Saved block","Template")){choice->when(choice){
+        showCompactPopup(anchor,"Add",listOf("New Canvas","New Block","Saved Block","From Template")){choice->when(choice){
             0->newDocument()
             1->addElement()
             2->assetPicker()
@@ -343,7 +344,7 @@ class MainActivity : Activity() {
             };setSelection(e.shape.ordinal);setBackgroundColor(if(dark)0xff1e293b.toInt() else 0xfff1f5f9.toInt())
         }
         box.addView(editorLabel("Visible label"));box.addView(label);box.addView(editorLabel("Shape"));box.addView(spinner);box.addView(editorLabel("Notes"));box.addView(notes)
-        val dialog=dialogBuilder().setTitle("Edit element").setView(box).setPositiveButton("Save"){_,_->val before=doc.deepCopy();e.label=label.text.toString();e.notes=notes.text.toString();e.shape=shapes[spinner.selectedItemPosition];history.record(before,doc.deepCopy());documentDirty=true;canvas.invalidate();updateUi()}.setNeutralButton("Reset default"){_,_->resetElement(e)}.setNegativeButton("Cancel",null).create()
+        val dialog=dialogBuilder().setTitle("Edit Block").setView(box).setPositiveButton("Save"){_,_->val before=doc.deepCopy();e.label=label.text.toString();e.notes=notes.text.toString();e.shape=shapes[spinner.selectedItemPosition];history.record(before,doc.deepCopy());documentDirty=true;canvas.invalidate();updateUi()}.setNeutralButton("Reset default"){_,_->resetElement(e)}.setNegativeButton("Cancel",null).create()
         dialog.setOnShowListener{val textColor=if(dark)Color.WHITE else 0xff172033.toInt();dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(textColor);dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.setTextColor(textColor);dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.setTextColor(textColor);dialog.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(if(dark)0xff0f172a.toInt() else Color.WHITE))}
         dialog.show()
     }
@@ -470,10 +471,10 @@ class MainActivity : Activity() {
     private fun cloneElement(e:FlowElement){val before=doc.deepCopy();val copy=e.copy(id=java.util.UUID.randomUUID().toString(),x=e.x+maxOf(canvas.gridSize,40f),y=e.y+maxOf(canvas.gridSize,40f));var tries=0;while(doc.elements.any{overlaps(it,copy)}&&tries<20){copy.x+=40f;copy.y+=40f;tries++};doc.elements+=copy;canvas.selectedElementId=copy.id;canvas.selectedConnectionId=null;history.record(before,doc.deepCopy());canvas.invalidate();updateUi()}
     private fun overlaps(a:FlowElement,b:FlowElement)=a.x<b.x+b.width&&a.x+a.width>b.x&&a.y<b.y+b.height&&a.y+a.height>b.y
 
-    private fun saveAsset(e:FlowElement){val input=EditText(this).apply{hint="Building block name";setText(e.label.ifBlank{"Building block"});setTextColor(if(canvas.darkMode)Color.WHITE else 0xff172033.toInt());setHintTextColor(if(canvas.darkMode)0xff94a3b8.toInt() else 0xff64748b.toInt())};dialogBuilder().setTitle("Save as Building Block").setMessage("Saves this element only — connections are not included.").setView(input).setPositiveButton("Save"){_,_->assets.save(ElementAsset(name=input.text.toString().trim().ifBlank{"Building block"},element=e.copy(id=java.util.UUID.randomUUID().toString(),x=0f,y=0f)));toast("Building block saved")}.setNegativeButton("Cancel",null).show()}
+    private fun saveAsset(e:FlowElement){val input=EditText(this).apply{hint="Building block name";setText(e.label.ifBlank{"Building block"});setTextColor(if(canvas.darkMode)Color.WHITE else 0xff172033.toInt());setHintTextColor(if(canvas.darkMode)0xff94a3b8.toInt() else 0xff64748b.toInt())};dialogBuilder().setTitle("Save as Building Block").setMessage("Saves this block only — connections are not included.").setView(input).setPositiveButton("Save"){_,_->assets.save(ElementAsset(name=input.text.toString().trim().ifBlank{"Building block"},element=e.copy(id=java.util.UUID.randomUUID().toString(),x=0f,y=0f)));toast("Building block saved")}.setNegativeButton("Cancel",null).show()}
     private fun assetPicker(){
         val list=assets.all()
-        if(list.isEmpty()){dialogBuilder().setTitle("Building Blocks").setMessage("No saved building blocks yet. Select an element and use Save Block.").setPositiveButton("OK",null).show();return}
+        if(list.isEmpty()){dialogBuilder().setTitle("Building Blocks").setMessage("No saved building blocks yet. Select a block and use Save Block.").setPositiveButton("OK",null).show();return}
         val names=list.map{it.name}
         showCompactPopup(addButton ?: canvas,"Building Blocks",names){which->insertAsset(list[which])}
     }
@@ -482,8 +483,8 @@ class MainActivity : Activity() {
     private fun showNotes(e:FlowElement){dialogBuilder().setTitle("Notes — ${e.label}").setMessage(e.notes.ifBlank{"No notes attached."}).setPositiveButton("Close",null).show()}
     private fun templates(){
         val built=Templates.all()
-        val names=built.map{"Template • ${it.first}"}
-        showCompactPopup(addButton ?: canvas,"Diagram Templates",names){which->chooseTemplate(built[which].second())}
+        val names=built.map{"From Template • ${it.first}"}
+        showCompactPopup(addButton ?: canvas,"Templates",names){which->chooseTemplate(built[which].second())}
     }
 
     private fun chooseTemplate(template:FlowDocument){
@@ -702,7 +703,7 @@ class MainActivity : Activity() {
             setOnClickListener{action()}
         }
         val grid=check("Show background grid",canvas.gridVisible){canvas.gridVisible=it;prefs.edit().putBoolean("gridVisible",it).apply();canvas.invalidate()}
-        val snap=check("Snap elements to grid",canvas.snapToGrid){canvas.snapToGrid=it;prefs.edit().putBoolean("snapToGrid",it).apply();updateUi()}
+        val snap=check("Snap blocks to grid",canvas.snapToGrid){canvas.snapToGrid=it;prefs.edit().putBoolean("snapToGrid",it).apply();updateUi()}
         val eg=check("Include grid in PDF/JPG export",prefs.getBoolean("exportGrid",false)){prefs.edit().putBoolean("exportGrid",it).apply()}
         val darkBox=check("Dark mode",canvas.darkMode){ }
         val sizes=arrayOf(20f,40f,60f,80f)
@@ -726,7 +727,7 @@ class MainActivity : Activity() {
         val spacing=TextView(this).apply{text="Grid spacing";setTextColor(if(dark)Color.WHITE else 0xff172033.toInt());setPadding(0,dp(12),0,dp(2))}
         box.addView(grid);box.addView(snap);box.addView(eg);box.addView(darkBox);box.addView(spacing);box.addView(spin)
         box.addView(settingsButton("Fit diagram to screen"){canvas.fitContent()})
-        box.addView(settingsButton("Reset zoom / position"){canvas.resetViewport()})
+        box.addView(settingsButton("Reset zoom / position"){canvas.fitContent()})
         box.addView(settingsButton("Manage Building Blocks"){manageAssets()})
         box.addView(settingsButton("Clear Building Blocks"){assets.clear();toast("Building blocks cleared")})
         val dialog=dialogBuilder().setTitle("Settings").setView(box).setPositiveButton("Done"){_,_->canvas.gridSize=sizes[spin.selectedItemPosition];prefs.edit().putFloat("gridSize",canvas.gridSize).apply();canvas.invalidate()}.setNegativeButton("Cancel",null).create()
