@@ -235,11 +235,16 @@ class FlowCanvasView(context: Context) : View(context) {
         p.cubicTo(r.right+w*.02f,r.top+h*.46f,r.right-w*.00f,base,r.right-w*.20f,base);
         p.lineTo(r.left+w*.16f,base);p.close();return p
     }
+    private fun explicitEndpoint(e:FlowElement,s:ConnectionSide):PointF=when(s){
+        ConnectionSide.TOP->PointF(e.x+e.width/2f,e.y)
+        ConnectionSide.RIGHT->PointF(e.x+e.width,e.y+e.height/2f)
+        ConnectionSide.BOTTOM->PointF(e.x+e.width/2f,e.y+e.height)
+        ConnectionSide.LEFT->PointF(e.x,e.y+e.height/2f)
+        ConnectionSide.AUTO->PointF(e.x+e.width/2f,e.y+e.height/2f)
+    }
     private fun drawConnectionTargets(c:Canvas,e:FlowElement){
         val r=RectF(e.x,e.y,e.x+e.width,e.y+e.height)
         val hs=10f
-        // Interaction points stay on the rectangular selection box.  The
-        // finished connector itself is anchored to the rendered shape outline.
         val points=listOf(
             ConnectionSide.TOP to explicitEndpoint(e,ConnectionSide.TOP),
             ConnectionSide.RIGHT to explicitEndpoint(e,ConnectionSide.RIGHT),
@@ -302,10 +307,10 @@ class FlowCanvasView(context: Context) : View(context) {
         }
         return point(a, sa, lane) to point(b, sb, lane)
     }
-    // Finished connection anchors are based on the actual rendered outline,
-    // while interaction points remain on the rectangular selection box. This
-    // matters for irregular shapes such as STAR, CLOUD and DOCUMENT whose
-    // visible outline does not reach every edge of their bounding rectangle.
+    // Connection anchors are based on the actual rendered outline, not the
+    // element's rectangular layout bounds.  This matters for irregular shapes
+    // such as CLOUD and DOCUMENT whose visible outline does not reach every
+    // edge of their bounding rectangle.
     private fun shapeBoundaryEndpoint(e:FlowElement,side:ConnectionSide,offset:Float):PointF{
         val r=RectF(e.x,e.y,e.x+e.width,e.y+e.height)
         if(e.customPoints.size<3 && (e.shape==ShapeType.RECTANGLE || e.shape==ShapeType.ROUNDED || e.shape==ShapeType.EXTRA_ROUNDED || e.shape==ShapeType.OVAL || e.shape==ShapeType.CIRCLE)) {
@@ -431,10 +436,10 @@ class FlowCanvasView(context: Context) : View(context) {
         raw+=end
         val cleaned=mutableListOf<PointF>()
         raw.forEach { if(cleaned.isEmpty() || hypot(it.x-cleaned.last().x,it.y-cleaned.last().y)>1f) cleaned+=it }
-        return buildProtectedSmoothRoutePath(cleaned)
+        return buildSmoothRoutePath(cleaned)
     }
 
-    private fun buildProtectedSmoothRoutePath(points:List<PointF>):Path {
+    private fun buildSmoothRoutePath(points:List<PointF>):Path {
         val p=Path()
         if(points.isEmpty()) return p
         p.moveTo(points[0].x,points[0].y)
@@ -442,35 +447,21 @@ class FlowCanvasView(context: Context) : View(context) {
             p.lineTo(points[1].x,points[1].y)
             return p
         }
-
-        // The first and last segments are deliberately kept straight.  They are
-        // the protected "approach" segments: the connector may travel outside
-        // the element's rectangular box, then cross that box only once it is on
-        // the direct line to the real rendered outline.  This prevents smoothing
-        // a corner from slicing across a star point, cloud lobe, document curl,
-        // diamond corner, or another concave/irregular outline.
-        p.lineTo(points[1].x,points[1].y)
-        if(points.size==3){
-            p.lineTo(points[2].x,points[2].y)
-            return p
-        }
-
-        val radius=22f
-        for(i in 2 until points.lastIndex-1){
+        // Keep the automatically selected route, but turn every corner into a
+        // generous quadratic bend.  This remains one continuous Path rather than
+        // a collection of separately drawn line segments.
+        val radius=34f
+        for(i in 1 until points.lastIndex){
             val prev=points[i-1]; val cur=points[i]; val next=points[i+1]
             val inLen=hypot(cur.x-prev.x,cur.y-prev.y)
             val outLen=hypot(next.x-cur.x,next.y-cur.y)
             if(inLen<1f || outLen<1f){ p.lineTo(cur.x,cur.y); continue }
-            val r=min(radius,min(inLen,outLen)*.34f)
+            val r=min(radius,min(inLen,outLen)*.42f)
             val before=PointF(cur.x+(prev.x-cur.x)*r/inLen,cur.y+(prev.y-cur.y)*r/inLen)
             val after=PointF(cur.x+(next.x-cur.x)*r/outLen,cur.y+(next.y-cur.y)*r/outLen)
             p.lineTo(before.x,before.y)
             p.quadTo(cur.x,cur.y,after.x,after.y)
         }
-
-        // Final approach is never rounded.  It is allowed to pass through the
-        // bounding box only here, terminating exactly on the visible shape edge.
-        p.lineTo(points[points.lastIndex-1].x,points[points.lastIndex-1].y)
         p.lineTo(points.last().x,points.last().y)
         return p
     }
@@ -792,8 +783,6 @@ class FlowCanvasView(context: Context) : View(context) {
         for(e in document.elements.asReversed()){
             val r=RectF(e.x,e.y,e.x+e.width,e.y+e.height)
             for(side in sides){
-                // Connection-point hit testing follows the visible selection
-                // box, just like the connection-point UI.
                 val p=explicitEndpoint(e,side)
                 if(hypot(x-p.x,y-p.y)<=threshold)return e to side
             }
