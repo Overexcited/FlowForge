@@ -415,10 +415,10 @@ class FlowCanvasView(context: Context) : View(context) {
         // on the selected faces.
         val sourceOut=offsetFromSide(start,fromSide,64f)
         val targetOut=offsetFromSide(end,toSide,64f)
-        // Only OTHER objects are obstacles. The source and target objects are
-        // legitimate endpoints, so their bounding boxes must not interfere with
-        // the short lead-in/lead-out portions of the connector.
-        val obstacles=obstacleRects(a.id,b.id)
+        val obstacles=obstacleRects(a.id,b.id)+listOf(
+            expandedElementRect(a,48f),
+            expandedElementRect(b,48f)
+        )
         // Recalculate the route from the CURRENT block geometry every time the
         // canvas is drawn.  Stored routePoints are deliberately not used here: a
         // moved block must never leave an old elbow pinned to the canvas.
@@ -431,27 +431,10 @@ class FlowCanvasView(context: Context) : View(context) {
         raw+=end
         val cleaned=mutableListOf<PointF>()
         raw.forEach { if(cleaned.isEmpty() || hypot(it.x-cleaned.last().x,it.y-cleaned.last().y)>1f) cleaned+=it }
-        return buildSmoothRoutePath(cleaned, obstacles)
+        return buildSmoothRoutePath(cleaned)
     }
 
-    private fun pathClear(path:Path,obs:List<RectF>):Boolean {
-        if(obs.isEmpty()) return true
-        val m=PathMeasure(path,false)
-        if(m.length<=0f) return true
-        val pos=FloatArray(2)
-        var last:PointF?=null
-        var d=0f
-        while(d<=m.length){
-            if(!m.getPosTan(d,pos,null)) return false
-            val cur=PointF(pos[0],pos[1])
-            last?.let { if(!segmentClear(it,cur,obs)) return false }
-            last=cur
-            d+=maxOf(4f, min(10f,m.length/24f))
-        }
-        return true
-    }
-
-    private fun buildSmoothRoutePath(points:List<PointF>,obs:List<RectF>):Path {
+    private fun buildSmoothRoutePath(points:List<PointF>):Path {
         val p=Path()
         if(points.isEmpty()) return p
         p.moveTo(points[0].x,points[0].y)
@@ -459,35 +442,23 @@ class FlowCanvasView(context: Context) : View(context) {
             p.lineTo(points[1].x,points[1].y)
             return p
         }
-        fun rounded(radius:Float):Path {
-            val q=Path()
-            q.moveTo(points[0].x,points[0].y)
-            for(i in 1 until points.lastIndex){
-                val prev=points[i-1]; val cur=points[i]; val next=points[i+1]
-                val inLen=hypot(cur.x-prev.x,cur.y-prev.y)
-                val outLen=hypot(next.x-cur.x,next.y-cur.y)
-                if(inLen<1f || outLen<1f){ q.lineTo(cur.x,cur.y); continue }
-                val r=min(radius,min(inLen,outLen)*.42f)
-                val before=PointF(cur.x+(prev.x-cur.x)*r/inLen,cur.y+(prev.y-cur.y)*r/inLen)
-                val after=PointF(cur.x+(next.x-cur.x)*r/outLen,cur.y+(next.y-cur.y)*r/outLen)
-                q.lineTo(before.x,before.y)
-                q.quadTo(cur.x,cur.y,after.x,after.y)
-            }
-            q.lineTo(points.last().x,points.last().y)
-            return q
+        // Keep the automatically selected route, but turn every corner into a
+        // generous quadratic bend.  This remains one continuous Path rather than
+        // a collection of separately drawn line segments.
+        val radius=34f
+        for(i in 1 until points.lastIndex){
+            val prev=points[i-1]; val cur=points[i]; val next=points[i+1]
+            val inLen=hypot(cur.x-prev.x,cur.y-prev.y)
+            val outLen=hypot(next.x-cur.x,next.y-cur.y)
+            if(inLen<1f || outLen<1f){ p.lineTo(cur.x,cur.y); continue }
+            val r=min(radius,min(inLen,outLen)*.42f)
+            val before=PointF(cur.x+(prev.x-cur.x)*r/inLen,cur.y+(prev.y-cur.y)*r/inLen)
+            val after=PointF(cur.x+(next.x-cur.x)*r/outLen,cur.y+(next.y-cur.y)*r/outLen)
+            p.lineTo(before.x,before.y)
+            p.quadTo(cur.x,cur.y,after.x,after.y)
         }
-
-        // Curves are preferred, but a quadratic bend can bow into an obstacle
-        // even when the underlying polyline was clear. Try a normal smooth bend,
-        // then a tighter bend, and finally the guaranteed-clear polyline.
-        val smooth=rounded(34f)
-        if(pathClear(smooth,obs)) return smooth
-        val tight=rounded(14f)
-        if(pathClear(tight,obs)) return tight
-        val straight=Path()
-        straight.moveTo(points[0].x,points[0].y)
-        for(i in 1 until points.size) straight.lineTo(points[i].x,points[i].y)
-        return straight
+        p.lineTo(points.last().x,points.last().y)
+        return p
     }
 
     private fun buildRoutedPath(points:List<PointF>):Path{val p=Path();if(points.isEmpty())return p;if(points.size==1){p.moveTo(points[0].x,points[0].y);return p};val radius=28f;p.moveTo(points[0].x,points[0].y);for(i in 1 until points.lastIndex+1){val prev=points[i-1];val cur=points[i];val next=if(i<points.lastIndex)points[i+1]else null;if(next==null){p.lineTo(cur.x,cur.y);break};val inLen=hypot(cur.x-prev.x,cur.y-prev.y);val outLen=hypot(next.x-cur.x,next.y-cur.y);if(inLen<1f||outLen<1f){p.lineTo(cur.x,cur.y);continue};val r=min(radius,min(inLen,outLen)*.38f);val before=PointF(cur.x+(prev.x-cur.x)*r/inLen,cur.y+(prev.y-cur.y)*r/inLen);val after=PointF(cur.x+(next.x-cur.x)*r/outLen,cur.y+(next.y-cur.y)*r/outLen);p.lineTo(before.x,before.y);p.quadTo(cur.x,cur.y,after.x,after.y)};return p}
@@ -548,9 +519,10 @@ class FlowCanvasView(context: Context) : View(context) {
         // The finger path is intentionally used only to choose the two faces.
         // Once the finger is released, the connector is regenerated cleanly so
         // accidental wiggles never become ugly permanent routing waypoints.
-        // Avoid only other objects. Connections may cross other connections,
-        // and the endpoint objects are allowed at the two ends.
-        val obstacles=obstacleRects(a.id,b.id)
+        val obstacles=obstacleRects(a.id,b.id)+listOf(
+            expandedElementRect(a,48f),
+            expandedElementRect(b,48f)
+        )
 
         val middle=visibilityRoute(sourceOut,targetOut,obstacles,gestureBias(gesture))
         val raw=mutableListOf<PointF>()
