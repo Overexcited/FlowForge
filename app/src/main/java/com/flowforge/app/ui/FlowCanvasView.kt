@@ -81,6 +81,7 @@ class FlowCanvasView(context: Context) : View(context) {
         if (gridVisible) drawGrid(c)
         document.connections.forEach { drawConnection(c, it) }
         document.elements.forEach { drawElement(c, it) }
+        if (includeSelection && connectionMode) document.elements.forEach { drawConnectionTargets(c, it) }
         if (customShapeMode && customGesture.size > 1) drawCustomPreview(c)
         if (includeSelection) selectedElement()?.let { drawSelection(c, it) }
     }
@@ -199,7 +200,8 @@ class FlowCanvasView(context: Context) : View(context) {
             ConnectionSide.LEFT to PointF(r.left,r.centerY())
         )
         points.forEach{(side,p)->
-            paint.style=Paint.Style.FILL;paint.color=Color.WHITE;c.drawCircle(p.x,p.y,hs,paint)
+            val active=connectionStartId==e.id && connectionStartSide==side
+            paint.style=Paint.Style.FILL;paint.color=if(active)0xff2563eb.toInt() else Color.WHITE;c.drawCircle(p.x,p.y,hs,paint)
             paint.style=Paint.Style.STROKE;paint.color=0xff2563eb.toInt();paint.strokeWidth=3f;c.drawCircle(p.x,p.y,hs,paint)
         }
     }
@@ -207,17 +209,7 @@ class FlowCanvasView(context: Context) : View(context) {
         val r=RectF(e.x,e.y,e.x+e.width,e.y+e.height)
         paint.style=Paint.Style.STROKE;paint.strokeWidth=2f;paint.color=0xff2563eb.toInt();c.drawRect(r,paint)
         if(connectionMode){
-            val hs=10f
-            val points=listOf(
-                ConnectionSide.TOP to PointF(r.centerX(),r.top),
-                ConnectionSide.RIGHT to PointF(r.right,r.centerY()),
-                ConnectionSide.BOTTOM to PointF(r.centerX(),r.bottom),
-                ConnectionSide.LEFT to PointF(r.left,r.centerY())
-            )
-            points.forEach{(side,p)->
-                paint.style=Paint.Style.FILL;paint.color=if(connectionStartId==e.id && connectionStartSide==side)0xff2563eb.toInt() else Color.WHITE;c.drawCircle(p.x,p.y,hs,paint)
-                paint.style=Paint.Style.STROKE;paint.color=0xff2563eb.toInt();paint.strokeWidth=3f;c.drawCircle(p.x,p.y,hs,paint)
-            }
+            // Connection points for every block are drawn by drawContent().
         } else if(!customShapeMode){
             val hs=10f;handlePoints(r).forEach{p->paint.style=Paint.Style.FILL;paint.color=Color.WHITE;c.drawCircle(p.x,p.y,hs,paint);paint.style=Paint.Style.STROKE;paint.color=0xff2563eb.toInt();paint.strokeWidth=3f;c.drawCircle(p.x,p.y,hs,paint)}
         }
@@ -534,7 +526,7 @@ class FlowCanvasView(context: Context) : View(context) {
     fun cancelCustomShapeMode(){ customShapeMode=false; customShapeTargetId=null; customGesture.clear(); invalidate(); onSelectionChanged?.invoke() }
     fun commitCustomShape(){ if(!customShapeMode)return; val pts=customGesture.toList(); if(pts.size<8){ onSelectionChanged?.invoke(); return }; onCustomShapeFinished?.invoke(pts) }
 
-    fun beginConnectionMode(){connectionMode=true;connectionStartId=selectedElementId;connectionStartSide=null;invalidate();onSelectionChanged?.invoke()}
+    fun beginConnectionMode(){connectionMode=true;connectionStartId=null;connectionStartSide=null;selectedConnectionId=null;invalidate();onSelectionChanged?.invoke()}
     fun beginConnectionFrom(id:String){connectionMode=true;connectionStartId=id;connectionStartSide=null;selectedElementId=id;selectedConnectionId=null;invalidate();onSelectionChanged?.invoke()}
     fun cancelConnectionMode(){connectionMode=false;connectionStartId=null;connectionStartSide=null;invalidate();onConnectionCancelled?.invoke();onSelectionChanged?.invoke()}
 

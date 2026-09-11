@@ -167,7 +167,7 @@ class MainActivity : Activity() {
         contextBar?.setBackgroundColor(if(canvas.darkMode)0xff111827.toInt() else 0xfff8fafc.toInt())
         contextScroll?.setBackgroundColor(if(canvas.darkMode)0xff111827.toInt() else 0xfff8fafc.toInt())
         status?.setBackgroundColor(if(canvas.darkMode)0xff273449.toInt() else 0xffe2e8f0.toInt())
-        val mode = when { canvas.connectionMode -> " • Draw to Connect: tap/drag from one block to another"; canvas.customShapeMode -> " • Draw Custom Shape: draw, then tap ✓"; else -> "" }
+        val mode = when { canvas.connectionMode -> " • Connect mode: tap a point, then a point on another block"; canvas.customShapeMode -> " • Draw Custom Shape: draw, then tap ✓"; else -> "" }
         status?.text="${documentName}${if(documentDirty)" • Unsaved" else ""}  •  ${doc.elements.size} blocks  •  ${doc.connections.size} connections$mode"
         val bar=contextBar ?: return
         val scroll=contextScroll ?: return
@@ -285,6 +285,14 @@ class MainActivity : Activity() {
             elevation=dp(12).toFloat(); isOutsideTouchable=true
         }
         if(anchor!=null) popup.showAsDropDown(anchor,-dp(242),dp(2)) else popup.showAtLocation(window.decorView,Gravity.CENTER,0,0)
+    }
+
+    private fun showCompactPopup(anchor:View, title:String, items:List<String>, onChoice:(Int)->Unit){
+        showStyledPopup(title, items, anchor, emptySet(), onChoice)
+    }
+
+    private fun showCenteredCompactPopup(title:String, items:List<String>, onChoice:(Int)->Unit){
+        showStyledPopup(title, items, null, emptySet(), onChoice)
     }
 
     private fun replaceDocument(newDoc: FlowDocument, record:Boolean=true) { if(record)history.record(doc.deepCopy(),newDoc.deepCopy());doc=newDoc;canvas.document=doc;canvas.selectedElementId=null;canvas.selectedConnectionId=null;updateUi() }
