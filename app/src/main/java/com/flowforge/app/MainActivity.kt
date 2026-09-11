@@ -7,6 +7,7 @@ import android.graphics.*
 import android.graphics.pdf.PdfDocument
 import android.net.Uri
 import android.os.Bundle
+import org.json.JSONObject
 import android.provider.OpenableColumns
 import android.text.format.DateFormat
 import android.view.*
@@ -22,6 +23,7 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 import java.util.Base64
 import java.util.Date
+import java.io.File
 
 class MainActivity : Activity() {
     private lateinit var canvas: FlowCanvasView
@@ -34,6 +36,7 @@ class MainActivity : Activity() {
     private var contextScroll: HorizontalScrollView? = null
     private var undoButton: Button? = null
     private var redoButton: Button? = null
+    private var menuButton: Button? = null
     private var addButton: Button? = null
     private var pendingText = ""
     private var documentName = "Untitled"
@@ -57,6 +60,66 @@ class MainActivity : Activity() {
         assets = AssetStore(prefs)
         buildUi()
         applyPreferences()
+        restoreSessionCache()
+    }
+
+    override fun onPause() {
+        cacheSessionState()
+        super.onPause()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        cacheSessionState()
+        super.onSaveInstanceState(outState)
+    }
+
+    private fun cacheSessionState() {
+        runCatching {
+            val state = JSONObject()
+            state.put("document", doc.toJson())
+            state.put("documentName", documentName)
+            state.put("documentUri", documentUri?.toString() ?: JSONObject.NULL)
+            state.put("documentDirty", documentDirty)
+            state.put("history", history.toJson())
+            state.put("selectedElementId", canvas.selectedElementId ?: JSONObject.NULL)
+            state.put("selectedConnectionId", canvas.selectedConnectionId ?: JSONObject.NULL)
+            state.put("viewport", canvas.viewportStateJson())
+            val tmp = File(filesDir, "flowforge-session-cache.tmp")
+            val dst = File(filesDir, "flowforge-session-cache.json")
+            tmp.writeText(state.toString(), Charsets.UTF_8)
+            if (!tmp.renameTo(dst)) {
+                dst.delete()
+                tmp.renameTo(dst)
+            }
+        }
+    }
+
+    private fun restoreSessionCache() {
+        val cache = File(filesDir, "flowforge-session-cache.json")
+        runCatching {
+            if (!cache.exists()) return
+            val state = JSONObject(cache.readText(Charsets.UTF_8))
+            val restored = FlowDocument.fromJson(state.getString("document"))
+            doc = restored
+            canvas.document = doc
+            documentUri = state.optString("documentUri", "").takeIf { it.isNotBlank() && it != "null" }?.let(Uri::parse)
+            // An unsaved session is never turned into a pseudo-file merely because
+            // the recovery cache happens to contain a temporary/import name.
+            documentName = if (documentUri != null) {
+                displayDocumentName(state.optString("documentName", "Untitled"))
+            } else {
+                "Untitled"
+            }
+            documentDirty = state.optBoolean("documentDirty", false)
+            history = HistoryManager.fromJson(state.optString("history", ""), 2000)
+            canvas.restoreViewportState(state.optString("viewport", ""))
+            canvas.selectedElementId = state.optString("selectedElementId", "").takeIf { it.isNotBlank() && it != "null" }
+            canvas.selectedConnectionId = state.optString("selectedConnectionId", "").takeIf { it.isNotBlank() && it != "null" }
+            canvas.finishConnectionMode()
+            canvas.finishCustomShapeMode()
+            canvas.invalidate()
+            updateUi()
+        }
     }
 
     private fun buildUi() {
@@ -78,7 +141,7 @@ class MainActivity : Activity() {
             setPadding(dp(6), dp(5), dp(6), dp(5))
             setBackgroundColor(if (canvas.darkMode) 0xff020617.toInt() else 0xff0f172a.toInt())
         }
-        top.addView(iconButton("☰", "Menu") { mainMenu() })
+        top.addView(iconButton("☰", "Menu") { mainMenu() }.also { menuButton = it })
         top.addView(TextView(this).apply {
             text = "FlowForge"; textSize = 18f; setTextColor(Color.WHITE); gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(6), 0, dp(6), 0)
@@ -166,9 +229,28 @@ class MainActivity : Activity() {
         redoButton?.isEnabled=history.canRedo(); redoButton?.alpha=if(history.canRedo())1f else 0.45f
         contextBar?.setBackgroundColor(if(canvas.darkMode)0xff111827.toInt() else 0xfff8fafc.toInt())
         contextScroll?.setBackgroundColor(if(canvas.darkMode)0xff111827.toInt() else 0xfff8fafc.toInt())
-        status?.setBackgroundColor(if(canvas.darkMode)0xff273449.toInt() else 0xffe2e8f0.toInt())
-        val mode = when { canvas.connectionMode -> " • Connect mode: tap a point, then a point on another block"; canvas.customShapeMode -> " • Draw Custom Shape: draw, then tap ✓"; else -> "" }
-        status?.text="${documentName}${if(documentDirty)" • Unsaved" else ""}  •  ${doc.elements.size} blocks  •  ${doc.connections.size} connections$mode"
+        val statusView = status
+        if (canvas.connectionMode) {
+            statusView?.apply {
+                setBackgroundColor(if(canvas.darkMode) 0xff123524.toInt() else 0xffdcfce7.toInt())
+                setTextColor(if(canvas.darkMode) 0xff86efac.toInt() else 0xff166534.toInt())
+                textSize = 14f
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                gravity = Gravity.CENTER
+                setPadding(0, 0, 0, 0)
+                text = "Connect Mode: Tap any two points to connect them"
+            }
+        } else {
+            statusView?.apply {
+                setBackgroundColor(if(canvas.darkMode)0xff273449.toInt() else 0xffe2e8f0.toInt())
+                setTextColor(Color.WHITE)
+                textSize = 12f
+                typeface = android.graphics.Typeface.DEFAULT
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(12), 0, dp(12), 0)
+                text = "${if(documentUri != null) displayDocumentName(documentName) else "Untitled"}${if(documentDirty)" • Unsaved" else ""}  •  ${doc.elements.size} blocks  •  ${doc.connections.size} connections"
+            }
+        }
         val bar=contextBar ?: return
         val scroll=contextScroll ?: return
         bar.removeAllViews()
@@ -199,7 +281,7 @@ class MainActivity : Activity() {
             bar.addView(Space(this), LinearLayout.LayoutParams(0,1,1f))
         } else if(canvas.connectionMode){
             bar.visibility=View.VISIBLE; scroll.visibility=View.VISIBLE
-            bar.addView(TextView(this).apply{text="Tap a point, then a point on another block";textSize=12f;includeFontPadding=false;setTextColor(if(canvas.darkMode)Color.WHITE else 0xff172033.toInt());setPadding(4,0,dp(8),0)},LinearLayout.LayoutParams(0,WRAP_CONTENT,1f))
+            bar.addView(Space(this), LinearLayout.LayoutParams(0,1,1f))
             bar.addView(smallButton("Cancel"){canvas.cancelConnectionMode()})
         } else {
             bar.visibility=View.GONE; scroll.visibility=View.GONE
@@ -219,7 +301,8 @@ class MainActivity : Activity() {
     }
 
     private fun mainMenu(){
-        showStyledPopup("FlowForge", listOf("Recents","Save","Save As…","Open…","Fit diagram","Reset zoom / position","Import","Settings")){which->
+        val anchor=menuButton ?: return
+        showStyledPopup("FlowForge", listOf("Recents","Save","Save As…","Open…","Fit diagram","Reset zoom / position","Import","Settings"), anchor, emptySet()){which->
             when(which){
                 0->recents()
                 1->saveCurrent()
@@ -284,15 +367,7 @@ class MainActivity : Activity() {
             setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
             elevation=dp(12).toFloat(); isOutsideTouchable=true
         }
-        if(anchor!=null) popup.showAsDropDown(anchor,-dp(242),dp(2)) else popup.showAtLocation(window.decorView,Gravity.CENTER,0,0)
-    }
-
-    private fun showCompactPopup(anchor:View, title:String, items:List<String>, onChoice:(Int)->Unit){
-        showStyledPopup(title, items, anchor, emptySet(), onChoice)
-    }
-
-    private fun showCenteredCompactPopup(title:String, items:List<String>, onChoice:(Int)->Unit){
-        showStyledPopup(title, items, null, emptySet(), onChoice)
+        if(anchor!=null) popup.showAsDropDown(anchor,-dp(2),dp(2)) else popup.showAtLocation(window.decorView,Gravity.CENTER,0,0)
     }
 
     private fun replaceDocument(newDoc: FlowDocument, record:Boolean=true) { if(record)history.record(doc.deepCopy(),newDoc.deepCopy());doc=newDoc;canvas.document=doc;canvas.selectedElementId=null;canvas.selectedConnectionId=null;updateUi() }
@@ -840,7 +915,7 @@ class MainActivity : Activity() {
     private fun loadRecentDocument(uri:Uri,name:String){
         runCatching{contentResolver.takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION)}
         runCatching{contentResolver.openInputStream(uri)!!.bufferedReader().use{FlowDocument.fromJson(it.readText())}}
-            .onSuccess{history=HistoryManager(2000);doc=it;canvas.document=doc;canvas.selectedElementId=null;canvas.selectedConnectionId=null;documentName=name;documentUri=uri;documentDirty=false;touchRecent(uri,name);canvas.invalidate();updateUi()}
+            .onSuccess{history=HistoryManager(2000);doc=it;canvas.document=doc;canvas.selectedElementId=null;canvas.selectedConnectionId=null;documentName=displayDocumentName(name);documentUri=uri;documentDirty=false;touchRecent(uri,displayDocumentName(name));canvas.invalidate();updateUi()}
             .onFailure{toast("Could not open $name")}
     }
 
@@ -882,7 +957,7 @@ class MainActivity : Activity() {
             SAVE_JSON_AS->runCatching{
                 runCatching{contentResolver.takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)}
                 contentResolver.openOutputStream(uri,"wt")!!.use{it.write(doc.toJson().toByteArray())}
-                documentUri=uri; documentName=queryDisplayName(uri) ?: "FlowForge document"; documentDirty=false; touchRecent(uri,documentName); toast("Saved $documentName")
+                documentUri=uri; documentName=displayDocumentName(queryDisplayName(uri) ?: "FlowForge document"); documentDirty=false; touchRecent(uri,documentName); toast("Saved $documentName")
                 pendingAfterSave?.invoke()
             }.onFailure{toast("Could not save document")}.also{pendingAfterSave=null}
             OPEN_JSON->openJsonDocument(uri); IMPORT_JSON->importJson(uri); OPEN_MERMAID->importMermaid(uri); SAVE_PDF->exportPdf(uri,false); SAVE_PDF_DARK->exportPdf(uri,true); SAVE_IMAGE->exportPng(uri,false); SAVE_IMAGE_DARK->exportPng(uri,true)
@@ -899,7 +974,7 @@ class MainActivity : Activity() {
                 canvas.document=doc
                 canvas.selectedElementId=null
                 canvas.selectedConnectionId=null
-                documentName=queryDisplayName(uri) ?: "FlowForge document"
+                documentName=displayDocumentName(queryDisplayName(uri) ?: "FlowForge document")
                 documentUri=uri
                 documentDirty=false
                 touchRecent(uri,documentName)
@@ -909,6 +984,12 @@ class MainActivity : Activity() {
             }
             .onFailure{toast("Could not open ${queryDisplayName(uri) ?: "document"}")}
     }
+    private fun displayDocumentName(name:String):String{
+        val trimmed=name.trim()
+        if(trimmed.equals("Untitled.flowforge.json",ignoreCase=true)) return "Untitled"
+        return trimmed.replace(Regex("\\.flowforge\\.json$",RegexOption.IGNORE_CASE),"").ifBlank{"Untitled"}
+    }
+
     private fun queryDisplayName(uri:Uri):String?{
         contentResolver.query(uri,arrayOf(OpenableColumns.DISPLAY_NAME),null,null,null)?.use{if(it.moveToFirst())return it.getString(0)}
         return uri.lastPathSegment?.substringAfterLast('/')
