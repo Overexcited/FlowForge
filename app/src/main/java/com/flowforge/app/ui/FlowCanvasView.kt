@@ -100,7 +100,7 @@ class FlowCanvasView(context: Context) : View(context) {
             )
         }
         document.elements.forEach { element ->
-            if (occlusionWorld == null || !RectF(element.x, element.y, element.x + element.width, element.y + element.height).intersects(occlusionWorld)) {
+            if (occlusionWorld == null || !RectF.intersects(RectF(element.x, element.y, element.x + element.width, element.y + element.height), occlusionWorld)) {
                 drawElement(c, element)
             }
         }
