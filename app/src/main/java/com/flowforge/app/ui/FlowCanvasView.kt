@@ -235,6 +235,13 @@ class FlowCanvasView(context: Context) : View(context) {
         p.cubicTo(r.right+w*.02f,r.top+h*.46f,r.right-w*.00f,base,r.right-w*.20f,base);
         p.lineTo(r.left+w*.16f,base);p.close();return p
     }
+    private fun explicitEndpoint(e:FlowElement,s:ConnectionSide):PointF=when(s){
+        ConnectionSide.TOP->PointF(e.x+e.width/2f,e.y)
+        ConnectionSide.RIGHT->PointF(e.x+e.width,e.y+e.height/2f)
+        ConnectionSide.BOTTOM->PointF(e.x+e.width/2f,e.y+e.height)
+        ConnectionSide.LEFT->PointF(e.x,e.y+e.height/2f)
+        ConnectionSide.AUTO->PointF(e.x+e.width/2f,e.y+e.height/2f)
+    }
     private fun drawConnectionTargets(c:Canvas,e:FlowElement){
         val r=RectF(e.x,e.y,e.x+e.width,e.y+e.height)
         val hs=10f
