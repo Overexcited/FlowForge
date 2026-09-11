@@ -199,7 +199,7 @@ class MainActivity : Activity() {
             bar.addView(Space(this), LinearLayout.LayoutParams(0,1,1f))
         } else if(canvas.connectionMode){
             bar.visibility=View.VISIBLE; scroll.visibility=View.VISIBLE
-            bar.addView(TextView(this).apply{text="Draw to Connect";textSize=12f;setTextColor(if(canvas.darkMode)Color.WHITE else 0xff172033.toInt());setPadding(4,0,dp(8),0)},LinearLayout.LayoutParams(0,WRAP_CONTENT,1f))
+            bar.addView(TextView(this).apply{text="Tap a point, then a point on another block";textSize=12f;includeFontPadding=false;setTextColor(if(canvas.darkMode)Color.WHITE else 0xff172033.toInt());setPadding(4,0,dp(8),0)},LinearLayout.LayoutParams(0,WRAP_CONTENT,1f))
             bar.addView(smallButton("Cancel"){canvas.cancelConnectionMode()})
         } else {
             bar.visibility=View.GONE; scroll.visibility=View.GONE
@@ -219,8 +219,8 @@ class MainActivity : Activity() {
     }
 
     private fun mainMenu(){
-        dialogBuilder().setTitle("FlowForge")
-            .setItems(arrayOf("Recents","Save","Save As…","Open…","Fit diagram","Reset zoom / position","Import","Settings")){_,which->when(which){
+        showStyledPopup("FlowForge", listOf("Recents","Save","Save As…","Open…","Fit diagram","Reset zoom / position","Import","Settings")){which->
+            when(which){
                 0->recents()
                 1->saveCurrent()
                 2->saveAs()
@@ -229,62 +229,62 @@ class MainActivity : Activity() {
                 5->canvas.fitContent()
                 6->importMenu()
                 7->settings()
-            }}.show()
+            }
+        }
     }
 
     private fun addMenu(){
         val anchor=addButton ?: return
-        showCompactPopup(anchor,"Add",listOf("New Block","Saved Block","New Canvas","From Template"), { choice ->
+        showStyledPopup("Add", listOf("New Block","Saved Block","New Canvas","From Template"), anchor, setOf(2)){choice->
             when(choice){
                 0->addElement()
                 1->assetPicker()
                 2->newDocument()
                 3->templates()
             }
-        }, separatorBefore=setOf(2))
+        }
     }
 
-    private fun showCompactPopup(anchor:View,title:String,items:List<String>,onChoice:(Int)->Unit,separatorBefore:Set<Int> = emptySet()){
+    private fun showStyledPopup(title:String, items:List<String>, anchor:View?=null, separatorBefore:Set<Int> = emptySet(), onChoice:(Int)->Unit){
         val dark=canvas.darkMode
         lateinit var popup: PopupWindow
-        val outer=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(8),dp(8),dp(8),dp(8));setBackgroundColor(if(dark)0xff111827.toInt() else Color.WHITE)}
-        outer.addView(TextView(this).apply{text=title;textSize=14f;setTypeface(null,android.graphics.Typeface.BOLD);setTextColor(if(dark)Color.WHITE else 0xff172033.toInt());setPadding(dp(10),dp(4),dp(10),dp(8))},LinearLayout.LayoutParams(dp(280),WRAP_CONTENT))
-        val scroll=ScrollView(this).apply{isFillViewport=true}
+        val outer=LinearLayout(this).apply{
+            orientation=LinearLayout.VERTICAL
+            setPadding(dp(6),dp(6),dp(6),dp(6))
+            setBackgroundColor(Color.TRANSPARENT)
+        }
+        outer.addView(TextView(this).apply{
+            text=title; textSize=14f; setTypeface(null,Typeface.BOLD);
+            setTextColor(if(dark)Color.WHITE else 0xff172033.toInt());
+            gravity=Gravity.CENTER_VERTICAL; includeFontPadding=false
+            setPadding(dp(10),dp(6),dp(10),dp(8))
+        },LinearLayout.LayoutParams(dp(280),dp(34)))
         val listBox=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL}
         items.forEachIndexed{index,label->
-            if(index in separatorBefore){
-                listBox.addView(View(this).apply {
-                    setBackgroundColor(if(dark) 0xff475569.toInt() else 0xffcbd5e1.toInt())
-                }, LinearLayout.LayoutParams(dp(250),dp(1)).apply {
-                    setMargins(dp(15),dp(7),dp(15),dp(7))
-                })
-            }
+            if(index in separatorBefore) listBox.addView(View(this).apply{
+                setBackgroundColor(if(dark)0xff475569.toInt() else 0xffcbd5e1.toInt())
+            },LinearLayout.LayoutParams(dp(250),dp(1)).apply{setMargins(dp(15),dp(5),dp(15),dp(5))})
             listBox.addView(TextView(this).apply{
-                text=label;textSize=16f;gravity=Gravity.CENTER_VERTICAL;setTextColor(if(dark)Color.WHITE else 0xff172033.toInt());setPadding(dp(14),0,dp(14),0)
-                background=GradientDrawable().apply{cornerRadius=dp(7).toFloat();setColor(if(dark)0xff1e293b.toInt() else 0xfff1f5f9.toInt());setStroke(dp(1),if(dark)0xff334155.toInt() else 0xffe2e8f0.toInt())}
+                text=label; textSize=16f; gravity=Gravity.CENTER_VERTICAL; includeFontPadding=false
+                setTextColor(if(dark)Color.WHITE else 0xff172033.toInt())
+                setPadding(dp(14),0,dp(14),0)
+                background=GradientDrawable().apply{
+                    cornerRadius=dp(9).toFloat()
+                    setColor(if(dark)0xff1e293b.toInt() else 0xfff1f5f9.toInt())
+                    setStroke(dp(1),if(dark)0xff334155.toInt() else 0xffe2e8f0.toInt())
+                }
                 setOnClickListener{popup.dismiss();onChoice(index)}
             },LinearLayout.LayoutParams(dp(280),dp(48)).apply{setMargins(0,dp(2),0,dp(2))})
         }
-        scroll.addView(listBox)
-        outer.addView(scroll,LinearLayout.LayoutParams(WRAP_CONTENT,dp(420)))
-        popup=PopupWindow(outer,WRAP_CONTENT,WRAP_CONTENT,true).apply{setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));elevation=dp(10).toFloat();isOutsideTouchable=true}
-        popup.showAsDropDown(anchor,-dp(236),dp(2))
-    }
-
-    private fun showCenteredCompactPopup(title:String,items:List<String>,onChoice:(Int)->Unit){
-        val dark=canvas.darkMode
-        lateinit var popup: PopupWindow
-        val outer=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(8),dp(8),dp(8),dp(8));setBackgroundColor(if(dark)0xff111827.toInt() else Color.WHITE)}
-        outer.addView(TextView(this).apply{text=title;textSize=14f;setTypeface(null,android.graphics.Typeface.BOLD);setTextColor(if(dark)Color.WHITE else 0xff172033.toInt());setPadding(dp(10),dp(4),dp(10),dp(8))},LinearLayout.LayoutParams(dp(280),WRAP_CONTENT))
-        items.forEachIndexed{index,label->
-            outer.addView(TextView(this).apply{
-                text=label;textSize=16f;gravity=Gravity.CENTER_VERTICAL;setTextColor(if(dark)Color.WHITE else 0xff172033.toInt());setPadding(dp(14),0,dp(14),0)
-                background=GradientDrawable().apply{cornerRadius=dp(7).toFloat();setColor(if(dark)0xff1e293b.toInt() else 0xfff1f5f9.toInt());setStroke(dp(1),if(dark)0xff334155.toInt() else 0xffe2e8f0.toInt())}
-                setOnClickListener{popup.dismiss();onChoice(index)}
-            },LinearLayout.LayoutParams(dp(280),dp(48)).apply{setMargins(0,dp(2),0,dp(2))})
+        val scroll=ScrollView(this).apply{
+            isFillViewport=true; isVerticalScrollBarEnabled=false; addView(listBox)
         }
-        popup=PopupWindow(outer,WRAP_CONTENT,WRAP_CONTENT,true).apply{setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));elevation=dp(10).toFloat();isOutsideTouchable=true}
-        popup.showAtLocation(window.decorView,Gravity.CENTER,0,0)
+        outer.addView(scroll,LinearLayout.LayoutParams(WRAP_CONTENT,dp(8+items.size*52+separatorBefore.size*11).coerceAtMost(dp(500).toInt())))
+        popup=PopupWindow(outer,WRAP_CONTENT,WRAP_CONTENT,true).apply{
+            setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
+            elevation=dp(12).toFloat(); isOutsideTouchable=true
+        }
+        if(anchor!=null) popup.showAsDropDown(anchor,-dp(242),dp(2)) else popup.showAtLocation(window.decorView,Gravity.CENTER,0,0)
     }
 
     private fun replaceDocument(newDoc: FlowDocument, record:Boolean=true) { if(record)history.record(doc.deepCopy(),newDoc.deepCopy());doc=newDoc;canvas.document=doc;canvas.selectedElementId=null;canvas.selectedConnectionId=null;updateUi() }
@@ -366,7 +366,7 @@ class MainActivity : Activity() {
 
     private fun showElementEditor(e:FlowElement){
         val dark=canvas.darkMode
-        val box=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(22),dp(6),dp(22),dp(4));setBackgroundColor(if(dark)0xff0f172a.toInt() else Color.WHITE)}
+        val box=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(22),dp(6),dp(22),dp(4));background=GradientDrawable().apply{cornerRadius=dp(18).toFloat();setColor(if(dark)0xff0f172a.toInt() else Color.WHITE)}}
         val fieldText=if(dark)Color.WHITE else 0xff172033.toInt(); val fieldHint=if(dark)0xff94a3b8.toInt() else 0xff64748b.toInt()
         fun edit(initial:String,hintText:String,minLines:Int=1,multiline:Boolean=false)=EditText(this).apply{
             setText(initial)
@@ -612,7 +612,7 @@ class MainActivity : Activity() {
         val box=LinearLayout(this).apply{
             orientation=LinearLayout.VERTICAL
             setPadding(dp(22),dp(6),dp(22),dp(4))
-            setBackgroundColor(if(dark)0xff0f172a.toInt() else Color.WHITE)
+            background=GradientDrawable().apply{cornerRadius=dp(18).toFloat();setColor(if(dark)0xff0f172a.toInt() else Color.WHITE)}
         }
         val fieldText=if(dark)Color.WHITE else 0xff172033.toInt()
         val fieldHint=if(dark)0xff94a3b8.toInt() else 0xff64748b.toInt()

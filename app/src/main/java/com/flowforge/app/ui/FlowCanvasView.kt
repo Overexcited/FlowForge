@@ -31,9 +31,7 @@ class FlowCanvasView(context: Context) : View(context) {
     var customShapeTargetId: String? = null
         private set
     private var connectionStartId: String? = null
-    private var connectionPreview = PointF()
-    private var connectionStartPoint = PointF()
-    private val connectionGesture = mutableListOf<PointF>()
+    private var connectionStartSide: ConnectionSide? = null
     private val customGesture = mutableListOf<PointF>()
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -83,7 +81,6 @@ class FlowCanvasView(context: Context) : View(context) {
         if (gridVisible) drawGrid(c)
         document.connections.forEach { drawConnection(c, it) }
         document.elements.forEach { drawElement(c, it) }
-        if (connectionMode && connectionStartId != null) drawConnectionPreview(c)
         if (customShapeMode && customGesture.size > 1) drawCustomPreview(c)
         if (includeSelection) selectedElement()?.let { drawSelection(c, it) }
     }
@@ -192,7 +189,40 @@ class FlowCanvasView(context: Context) : View(context) {
         p.cubicTo(r.right+w*.02f,r.top+h*.46f,r.right-w*.00f,base,r.right-w*.20f,base);
         p.lineTo(r.left+w*.16f,base);p.close();return p
     }
-    private fun drawSelection(c:Canvas,e:FlowElement){val r=RectF(e.x,e.y,e.x+e.width,e.y+e.height);paint.style=Paint.Style.STROKE;paint.strokeWidth=2f;paint.color=0xff2563eb.toInt();c.drawRect(r,paint);if(!connectionMode&&!customShapeMode){val hs=10f;handlePoints(r).forEach{p->paint.style=Paint.Style.FILL;paint.color=Color.WHITE;c.drawCircle(p.x,p.y,hs,paint);paint.style=Paint.Style.STROKE;paint.color=0xff2563eb.toInt();paint.strokeWidth=3f;c.drawCircle(p.x,p.y,hs,paint)}};if(e.notes.isNotBlank())lastNotesButton=RectF(r.right-30f,r.top-30f,r.right+2f,r.top+2f)else lastNotesButton.setEmpty()}
+    private fun drawConnectionTargets(c:Canvas,e:FlowElement){
+        val r=RectF(e.x,e.y,e.x+e.width,e.y+e.height)
+        val hs=10f
+        val points=listOf(
+            ConnectionSide.TOP to PointF(r.centerX(),r.top),
+            ConnectionSide.RIGHT to PointF(r.right,r.centerY()),
+            ConnectionSide.BOTTOM to PointF(r.centerX(),r.bottom),
+            ConnectionSide.LEFT to PointF(r.left,r.centerY())
+        )
+        points.forEach{(side,p)->
+            paint.style=Paint.Style.FILL;paint.color=Color.WHITE;c.drawCircle(p.x,p.y,hs,paint)
+            paint.style=Paint.Style.STROKE;paint.color=0xff2563eb.toInt();paint.strokeWidth=3f;c.drawCircle(p.x,p.y,hs,paint)
+        }
+    }
+    private fun drawSelection(c:Canvas,e:FlowElement){
+        val r=RectF(e.x,e.y,e.x+e.width,e.y+e.height)
+        paint.style=Paint.Style.STROKE;paint.strokeWidth=2f;paint.color=0xff2563eb.toInt();c.drawRect(r,paint)
+        if(connectionMode){
+            val hs=10f
+            val points=listOf(
+                ConnectionSide.TOP to PointF(r.centerX(),r.top),
+                ConnectionSide.RIGHT to PointF(r.right,r.centerY()),
+                ConnectionSide.BOTTOM to PointF(r.centerX(),r.bottom),
+                ConnectionSide.LEFT to PointF(r.left,r.centerY())
+            )
+            points.forEach{(side,p)->
+                paint.style=Paint.Style.FILL;paint.color=if(connectionStartId==e.id && connectionStartSide==side)0xff2563eb.toInt() else Color.WHITE;c.drawCircle(p.x,p.y,hs,paint)
+                paint.style=Paint.Style.STROKE;paint.color=0xff2563eb.toInt();paint.strokeWidth=3f;c.drawCircle(p.x,p.y,hs,paint)
+            }
+        } else if(!customShapeMode){
+            val hs=10f;handlePoints(r).forEach{p->paint.style=Paint.Style.FILL;paint.color=Color.WHITE;c.drawCircle(p.x,p.y,hs,paint);paint.style=Paint.Style.STROKE;paint.color=0xff2563eb.toInt();paint.strokeWidth=3f;c.drawCircle(p.x,p.y,hs,paint)}
+        }
+        if(e.notes.isNotBlank())lastNotesButton=RectF(r.right-30f,r.top-30f,r.right+2f,r.top+2f)else lastNotesButton.setEmpty()
+    }
     private fun drawBadge(c:Canvas,x:Float,y:Float,info:Boolean){paint.style=Paint.Style.FILL;paint.color=0xfff59e0b.toInt();c.drawCircle(x,y,10f,paint);textPaint.color=Color.WHITE;textPaint.typeface=Typeface.DEFAULT;textPaint.textSize=13f;textPaint.flags=Paint.ANTI_ALIAS_FLAG;c.drawText(if(info)"i" else "!",x-2.3f,y+4.5f,textPaint)}
 
     private fun drawConnection(c:Canvas,con:FlowConnection){
@@ -495,10 +525,8 @@ class FlowCanvasView(context: Context) : View(context) {
         return out
     }
 
-    private fun drawConnectionPreview(c:Canvas){val start=document.elements.firstOrNull{it.id==connectionStartId}?:return;if(connectionGesture.size<2)return;paint.style=Paint.Style.STROKE;paint.strokeWidth=5f;paint.color=0xff2563eb.toInt();paint.pathEffect=null;val pts=connectionGesture;val p=Path();p.moveTo(pts.first().x,pts.first().y);for(i in 1 until pts.size){val a=pts[i-1];val b=pts[i];p.quadTo((a.x+b.x)/2f,(a.y+b.y)/2f,b.x,b.y)};c.drawPath(p,paint);paint.style=Paint.Style.FILL;paint.color=0xff2563eb.toInt();c.drawCircle(connectionPreview.x,connectionPreview.y,5f,paint);paint.style=Paint.Style.STROKE;val side=endpointSide(start,connectionStartPoint);val q=explicitEndpoint(start,side);c.drawCircle(q.x,q.y,7f,paint)}
-
     fun beginCustomShapeMode(targetId:String){
-        connectionMode=false; connectionStartId=null; connectionGesture.clear(); customShapeMode=true; customShapeTargetId=targetId; customGesture.clear(); invalidate(); onSelectionChanged?.invoke()
+        connectionMode=false; connectionStartId=null; connectionStartSide=null; customShapeMode=true; customShapeTargetId=targetId; customGesture.clear(); invalidate(); onSelectionChanged?.invoke()
     }
     fun finishCustomShapeMode(){
         customShapeMode=false; customShapeTargetId=null; customGesture.clear(); invalidate(); onSelectionChanged?.invoke()
@@ -506,34 +534,91 @@ class FlowCanvasView(context: Context) : View(context) {
     fun cancelCustomShapeMode(){ customShapeMode=false; customShapeTargetId=null; customGesture.clear(); invalidate(); onSelectionChanged?.invoke() }
     fun commitCustomShape(){ if(!customShapeMode)return; val pts=customGesture.toList(); if(pts.size<8){ onSelectionChanged?.invoke(); return }; onCustomShapeFinished?.invoke(pts) }
 
-    fun beginConnectionMode(){connectionMode=true;connectionStartId=null;connectionGesture.clear();invalidate();onSelectionChanged?.invoke()}
-    fun beginConnectionFrom(id:String){connectionMode=true;connectionStartId=id;connectionGesture.clear();selectedElementId=id;selectedConnectionId=null;invalidate();onSelectionChanged?.invoke()}
-    fun cancelConnectionMode(){connectionMode=false;connectionStartId=null;connectionGesture.clear();invalidate();onConnectionCancelled?.invoke();onSelectionChanged?.invoke()}
+    fun beginConnectionMode(){connectionMode=true;connectionStartId=selectedElementId;connectionStartSide=null;invalidate();onSelectionChanged?.invoke()}
+    fun beginConnectionFrom(id:String){connectionMode=true;connectionStartId=id;connectionStartSide=null;selectedElementId=id;selectedConnectionId=null;invalidate();onSelectionChanged?.invoke()}
+    fun cancelConnectionMode(){connectionMode=false;connectionStartId=null;connectionStartSide=null;invalidate();onConnectionCancelled?.invoke();onSelectionChanged?.invoke()}
 
-    override fun onTouchEvent(event:MotionEvent):Boolean{scaleDetector.onTouchEvent(event);when(event.actionMasked){MotionEvent.ACTION_DOWN->{gestureMoved=false;lastX=event.x;lastY=event.y;val w=world(event.x,event.y);if(customShapeMode){ customGesture.clear(); customGesture.add(PointF(w.x,w.y)); gestureMoved=false; invalidate(); return true };if(connectionMode){val hit=hitElement(w.x,w.y);if(connectionStartId==null&&hit!=null){connectionStartId=hit.id;selectedElementId=hit.id;selectedConnectionId=null;connectionStartPoint.set(w.x,w.y);connectionGesture.clear();connectionGesture.add(PointF(w.x,w.y));connectionPreview.set(w.x,w.y);invalidate();onSelectionChanged?.invoke();return true};if(connectionStartId!=null){connectionGesture.add(PointF(w.x,w.y));connectionPreview.set(w.x,w.y);invalidate();return true}};val selected=selectedElement();if(selected!=null&&!customShapeMode){val h=handleAt(selected,w.x,w.y);if(h!=Handle.NONE){resizeId=selected.id;resizeHandle=h;dragId=null;startResize=RectF(selected.x,selected.y,selected.x+selected.width,selected.y+selected.height);return true};if(!lastNotesButton.isEmpty&&lastNotesButton.contains(w.x,w.y)){onNotesTap?.invoke(selected);return true}};val hit=hitElement(w.x,w.y);if(hit!=null){selectedElementId=hit.id;selectedConnectionId=null;dragId=hit.id;dragOffsetX=w.x-hit.x;dragOffsetY=w.y-hit.y;startMoveX=hit.x;startMoveY=hit.y;val now=System.currentTimeMillis();if(now-lastTap<300)onDoubleTapElement?.invoke(hit);lastTap=now}else{selectedElementId=null;selectedConnectionId=hitConnection(w.x,w.y)?.id};onSelectionChanged?.invoke();invalidate();return true}
-        MotionEvent.ACTION_POINTER_DOWN->{
-            if(event.pointerCount>=2){
-                // A second finger changes the gesture into viewport navigation.
-                // Do not let an element drag/resize continue underneath the pinch.
-                dragId=null;resizeId=null;resizeHandle=Handle.NONE;gestureMoved=true
+    override fun onTouchEvent(event:MotionEvent):Boolean{
+        // Connect mode deliberately disables canvas navigation, block movement and resizing.
+        // Only the four cardinal connection points are interactive.
+        if(connectionMode){
+            when(event.actionMasked){
+                MotionEvent.ACTION_DOWN->{
+                    val w=world(event.x,event.y)
+                    val hit=connectionPointAt(w.x,w.y)
+                    if(hit!=null){
+                        val (element,side)=hit
+                        if(connectionStartId==null){
+                            connectionStartId=element.id; connectionStartSide=side; selectedElementId=element.id; selectedConnectionId=null
+                        }else if(connectionStartSide==null && element.id==connectionStartId){
+                            connectionStartSide=side
+                        }else if(connectionStartSide!=null && element.id!=connectionStartId){
+                            val from=document.elements.firstOrNull{it.id==connectionStartId}
+                            if(from!=null){
+                                onConnectionRequested?.invoke(from.id,element.id,connectionStartSide!!,side,emptyList())
+                            }
+                        }
+                        invalidate();onSelectionChanged?.invoke()
+                    }
+                    return true
+                }
+                MotionEvent.ACTION_UP,MotionEvent.ACTION_CANCEL->{return true}
             }
             return true
         }
-        MotionEvent.ACTION_POINTER_UP->{
-            if(event.pointerCount>1){
-                val remaining=if(event.actionIndex==0)1 else 0
-                if(remaining<event.pointerCount){lastX=event.getX(remaining);lastY=event.getY(remaining)}
-                gestureMoved=true
+        scaleDetector.onTouchEvent(event)
+        when(event.actionMasked){
+            MotionEvent.ACTION_DOWN->{
+                gestureMoved=false;lastX=event.x;lastY=event.y;val w=world(event.x,event.y)
+                if(customShapeMode){ customGesture.clear(); customGesture.add(PointF(w.x,w.y)); gestureMoved=false; invalidate(); return true }
+                val selected=selectedElement()
+                if(selected!=null&&!customShapeMode){val h=handleAt(selected,w.x,w.y);if(h!=Handle.NONE){resizeId=selected.id;resizeHandle=h;dragId=null;startResize=RectF(selected.x,selected.y,selected.x+selected.width,selected.y+selected.height);return true};if(!lastNotesButton.isEmpty&&lastNotesButton.contains(w.x,w.y)){onNotesTap?.invoke(selected);return true}}
+                val hit=hitElement(w.x,w.y)
+                if(hit!=null){selectedElementId=hit.id;selectedConnectionId=null;dragId=hit.id;dragOffsetX=w.x-hit.x;dragOffsetY=w.y-hit.y;startMoveX=hit.x;startMoveY=hit.y;val now=System.currentTimeMillis();if(now-lastTap<300)onDoubleTapElement?.invoke(hit);lastTap=now}else{selectedElementId=null;selectedConnectionId=hitConnection(w.x,w.y)?.id}
+                onSelectionChanged?.invoke();invalidate();return true
             }
-            return true
+            MotionEvent.ACTION_POINTER_DOWN->{
+                if(event.pointerCount>=2){dragId=null;resizeId=null;resizeHandle=Handle.NONE;gestureMoved=true}
+                return true
+            }
+            MotionEvent.ACTION_POINTER_UP->{
+                if(event.pointerCount>1){val remaining=if(event.actionIndex==0)1 else 0;if(remaining<event.pointerCount){lastX=event.getX(remaining);lastY=event.getY(remaining)};gestureMoved=true}
+                return true
+            }
+            MotionEvent.ACTION_MOVE->{
+                if(event.pointerCount>1){gestureMoved=true;return true}
+                val w=world(event.x,event.y)
+                if(customShapeMode){ customGesture.add(PointF(w.x,w.y)); gestureMoved=true; invalidate(); return true }
+                if(resizeId!=null){resize(selectedElement()?:return true,w.x,w.y);gestureMoved=true}else if(dragId!=null){selectedElement()?.let{it.x=w.x-dragOffsetX;it.y=w.y-dragOffsetY;if(snapToGrid){it.x=round(it.x/gridSize)*gridSize;it.y=round(it.y/gridSize)*gridSize}};gestureMoved=true}else{panX+=event.x-lastX;panY+=event.y-lastY;gestureMoved=true}
+                lastX=event.x;lastY=event.y;invalidate();return true
+            }
+            MotionEvent.ACTION_UP->{
+                if(customShapeMode){invalidate();return true}
+                val e=selectedElement();if(dragId!=null&&e!=null&&(e.x!=startMoveX||e.y!=startMoveY))onMoveFinished?.invoke(e,startMoveX,startMoveY)
+                if(resizeId!=null&&e!=null){val old=startResize;if(old.left!=e.x||old.top!=e.y||old.width()!=e.width||old.height()!=e.height)onResizeFinished?.invoke(e,old.left,old.top,old.width(),old.height())}
+                dragId=null;resizeId=null;resizeHandle=Handle.NONE;return true
+            }
+            MotionEvent.ACTION_CANCEL->{dragId=null;resizeId=null;resizeHandle=Handle.NONE;return true}
         }
-        MotionEvent.ACTION_MOVE->{if(event.pointerCount>1){gestureMoved=true;return true};val w=world(event.x,event.y);if(customShapeMode){ customGesture.add(PointF(w.x,w.y)); gestureMoved=true; invalidate(); return true };if(connectionMode&&connectionStartId!=null){connectionGesture.add(PointF(w.x,w.y));connectionPreview.set(w.x,w.y);gestureMoved=true;invalidate();return true};if(resizeId!=null){resize(selectedElement()?:return true,w.x,w.y);gestureMoved=true}else if(dragId!=null){selectedElement()?.let{it.x=w.x-dragOffsetX;it.y=w.y-dragOffsetY;if(snapToGrid){it.x=round(it.x/gridSize)*gridSize;it.y=round(it.y/gridSize)*gridSize}};gestureMoved=true}else{panX+=event.x-lastX;panY+=event.y-lastY;gestureMoved=true};lastX=event.x;lastY=event.y;invalidate();return true}
-        MotionEvent.ACTION_UP->{if(customShapeMode){ invalidate(); return true };if(connectionMode&&connectionStartId!=null){val w=world(event.x,event.y);val target=hitElement(w.x,w.y);val source=connectionStartId?:return true;if(target!=null&&target.id!=source){val start=document.elements.firstOrNull{it.id==source};if(start!=null){val fs=endpointSide(start,connectionStartPoint);val ts=endpointSide(target,w);val route=routeConnection(start,target,fs,ts,connectionGesture);onConnectionRequested?.invoke(source,target.id,fs,ts,route)};return true};if(!gestureMoved&&target==null){connectionStartId=null;connectionGesture.clear();invalidate();onSelectionChanged?.invoke()};return true};val e=selectedElement();if(dragId!=null&&e!=null&&(e.x!=startMoveX||e.y!=startMoveY))onMoveFinished?.invoke(e,startMoveX,startMoveY);if(resizeId!=null&&e!=null){val old=startResize;if(old.left!=e.x||old.top!=e.y||old.width()!=e.width||old.height()!=e.height)onResizeFinished?.invoke(e,old.left,old.top,old.width(),old.height())};dragId=null;resizeId=null;resizeHandle=Handle.NONE;return true}
-        MotionEvent.ACTION_CANCEL->{dragId=null;resizeId=null;resizeHandle=Handle.NONE;if(connectionMode)cancelConnectionMode();return true}}
-        return true}
+        return true
+    }
 
     private fun resize(e:FlowElement,x:Float,y:Float){var l=e.x;var t=e.y;var r=e.x+e.width;var b=e.y+e.height;val minW=70f;val minH=45f;when(resizeHandle){Handle.TL->{l=min(x,r-minW);t=min(y,b-minH)};Handle.T->{t=min(y,b-minH)};Handle.TR->{r=max(x,l+minW);t=min(y,b-minH)};Handle.L->{l=min(x,r-minW)};Handle.R->{r=max(x,l+minW)};Handle.BL->{l=min(x,r-minW);b=max(y,t+minH)};Handle.B->{b=max(y,t+minH)};Handle.BR->{r=max(x,l+minW);b=max(y,t+minH)};else->Unit};if(snapToGrid){l=round(l/gridSize)*gridSize;t=round(t/gridSize)*gridSize;r=round(r/gridSize)*gridSize;b=round(b/gridSize)*gridSize};e.x=l;e.y=t;e.width=r-l;e.height=b-t}
     private fun handlePoints(r:RectF)=listOf(PointF(r.left,r.top),PointF(r.centerX(),r.top),PointF(r.right,r.top),PointF(r.left,r.centerY()),PointF(r.right,r.centerY()),PointF(r.left,r.bottom),PointF(r.centerX(),r.bottom),PointF(r.right,r.bottom))
+    private fun connectionPointAt(x:Float,y:Float):Pair<FlowElement,ConnectionSide>?{
+        val threshold=maxOf(28f,30f/scale)
+        val sides=listOf(
+            ConnectionSide.TOP,ConnectionSide.RIGHT,ConnectionSide.BOTTOM,ConnectionSide.LEFT
+        )
+        for(e in document.elements.asReversed()){
+            val r=RectF(e.x,e.y,e.x+e.width,e.y+e.height)
+            for(side in sides){
+                val p=explicitEndpoint(e,side)
+                if(hypot(x-p.x,y-p.y)<=threshold)return e to side
+            }
+        }
+        return null
+    }
     private fun handleAt(e: FlowElement, x: Float, y: Float): Handle {
         val r = RectF(e.x, e.y, e.x + e.width, e.y + e.height)
         val margin = maxOf(34f / scale, 22f)
@@ -555,7 +640,7 @@ class FlowCanvasView(context: Context) : View(context) {
     private fun wrap(s:String,max:Int):List<String>{
         if(s.isEmpty())return listOf("")
         val out=mutableListOf<String>()
-        s.replace("\r\n","\n").replace('\r','\n').split("\n",limit=-1).forEach{paragraph->
+        s.replace("\r\n","\n").replace('\r','\n').split("\n", limit = Int.MAX_VALUE).forEach{paragraph->
             if(paragraph.length<=max){out+=paragraph;return@forEach}
             var rest=paragraph
             while(rest.length>max){
