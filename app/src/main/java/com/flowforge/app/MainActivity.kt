@@ -370,6 +370,14 @@ class MainActivity : Activity() {
         if(anchor!=null) popup.showAsDropDown(anchor,-dp(2),dp(2)) else popup.showAtLocation(window.decorView,Gravity.CENTER,0,0)
     }
 
+    private fun showCompactPopup(anchor:View, title:String, items:List<String>, onChoice:(Int)->Unit){
+        showStyledPopup(title, items, anchor, emptySet(), onChoice)
+    }
+
+    private fun showCenteredCompactPopup(title:String, items:List<String>, onChoice:(Int)->Unit){
+        showStyledPopup(title, items, null, emptySet(), onChoice)
+    }
+
     private fun replaceDocument(newDoc: FlowDocument, record:Boolean=true) { if(record)history.record(doc.deepCopy(),newDoc.deepCopy());doc=newDoc;canvas.document=doc;canvas.selectedElementId=null;canvas.selectedConnectionId=null;updateUi() }
     private fun newDocument(){
         if(documentDirty){
