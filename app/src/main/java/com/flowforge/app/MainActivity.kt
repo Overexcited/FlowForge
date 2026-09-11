@@ -25,7 +25,6 @@ import java.util.Base64
 import java.util.Date
 import java.text.SimpleDateFormat
 import java.util.Locale
-import kotlin.random.Random
 import java.io.File
 
 class MainActivity : Activity() {
@@ -282,11 +281,11 @@ class MainActivity : Activity() {
             bar.addView(Space(this), LinearLayout.LayoutParams(0,1,1f))
         } else if(c!=null && !canvas.connectionMode){
             bar.visibility=View.VISIBLE; scroll.visibility=View.VISIBLE
-            bar.addView(smallButton("Edit"){showConnectionEditor(c)})
             bar.addView(smallButton("Reverse"){reverseConnection(c)})
             bar.addView(smallButton("Color"){showConnectionColorPicker(c)})
             bar.addView(smallButton("Style: ${lineStyleLabel(c.lineStyle)}"){cycleConnectionLineStyle(c)})
             bar.addView(smallButton("Arrows: ${arrowLabel(c.arrowType)}"){cycleConnectionArrow(c)})
+            bar.addView(smallButton("Edit"){showConnectionEditor(c)})
             bar.addView(smallButton("Delete"){deleteSelected()})
             bar.addView(Space(this), LinearLayout.LayoutParams(0,1,1f))
         } else if(canvas.connectionMode){
@@ -893,9 +892,8 @@ class MainActivity : Activity() {
     }
 
     private fun newUntitledFileName(extension:String):String{
-        val date=SimpleDateFormat("dd-MM-yyyy",Locale.US).format(Date())
-        val random=Random.nextInt(100,1000)
-        return "FlowForge_${date}_${random}.$extension"
+        val stamp=SimpleDateFormat("yyMMdd_HHmmss",Locale.US).format(Date())
+        return "Untitled_$stamp.$extension"
     }
 
     private fun saveAs(){

@@ -238,11 +238,13 @@ class FlowCanvasView(context: Context) : View(context) {
     private fun drawConnectionTargets(c:Canvas,e:FlowElement){
         val r=RectF(e.x,e.y,e.x+e.width,e.y+e.height)
         val hs=10f
+        // Interaction points stay on the rectangular selection box.  The
+        // finished connector itself is anchored to the rendered shape outline.
         val points=listOf(
-            ConnectionSide.TOP to PointF(r.centerX(),r.top),
-            ConnectionSide.RIGHT to PointF(r.right,r.centerY()),
-            ConnectionSide.BOTTOM to PointF(r.centerX(),r.bottom),
-            ConnectionSide.LEFT to PointF(r.left,r.centerY())
+            ConnectionSide.TOP to explicitEndpoint(e,ConnectionSide.TOP),
+            ConnectionSide.RIGHT to explicitEndpoint(e,ConnectionSide.RIGHT),
+            ConnectionSide.BOTTOM to explicitEndpoint(e,ConnectionSide.BOTTOM),
+            ConnectionSide.LEFT to explicitEndpoint(e,ConnectionSide.LEFT)
         )
         points.forEach{(side,p)->
             val active=connectionStartId==e.id && connectionStartSide==side
@@ -292,33 +294,97 @@ class FlowCanvasView(context: Context) : View(context) {
             ConnectionSide.LEFT -> ConnectionSide.RIGHT
             else -> ConnectionSide.AUTO
         }
-        fun point(e: FlowElement, side: ConnectionSide, offset: Float): PointF {
-            return when (side) {
-                ConnectionSide.TOP -> PointF(
-                    (e.x + e.width / 2f + offset).coerceIn(e.x + 8f, e.x + e.width - 8f), e.y
-                )
-                ConnectionSide.RIGHT -> PointF(
-                    e.x + e.width,
-                    (e.y + e.height / 2f + offset).coerceIn(e.y + 8f, e.y + e.height - 8f)
-                )
-                ConnectionSide.BOTTOM -> PointF(
-                    (e.x + e.width / 2f + offset).coerceIn(e.x + 8f, e.x + e.width - 8f),
-                    e.y + e.height
-                )
-                ConnectionSide.LEFT -> PointF(
-                    e.x,
-                    (e.y + e.height / 2f + offset).coerceIn(e.y + 8f, e.y + e.height - 8f)
-                )
-                else -> PointF(e.x + e.width / 2f, e.y + e.height / 2f)
-            }
-        }
+        fun point(e: FlowElement, side: ConnectionSide, offset: Float): PointF =
+            shapeBoundaryEndpoint(e,side,offset)
         val lane = if (count <= 1) 0f else {
             ((index - (count - 1) / 2f) * minOf(a.width, a.height) * .28f)
                 .coerceIn(-minOf(a.width, a.height) * .42f, minOf(a.width, a.height) * .42f)
         }
         return point(a, sa, lane) to point(b, sb, lane)
     }
-    private fun explicitEndpoint(e:FlowElement,s:ConnectionSide)=when(s){ConnectionSide.TOP->PointF(e.x+e.width/2f,e.y);ConnectionSide.RIGHT->PointF(e.x+e.width,e.y+e.height/2f);ConnectionSide.BOTTOM->PointF(e.x+e.width/2f,e.y+e.height);ConnectionSide.LEFT->PointF(e.x,e.y+e.height/2f);else->PointF(e.x+e.width/2f,e.y+e.height/2f)}
+    // Finished connection anchors are based on the actual rendered outline,
+    // while interaction points remain on the rectangular selection box. This
+    // matters for irregular shapes such as STAR, CLOUD and DOCUMENT whose
+    // visible outline does not reach every edge of their bounding rectangle.
+    private fun shapeBoundaryEndpoint(e:FlowElement,side:ConnectionSide,offset:Float):PointF{
+        val r=RectF(e.x,e.y,e.x+e.width,e.y+e.height)
+        if(e.customPoints.size<3 && (e.shape==ShapeType.RECTANGLE || e.shape==ShapeType.ROUNDED || e.shape==ShapeType.EXTRA_ROUNDED || e.shape==ShapeType.OVAL || e.shape==ShapeType.CIRCLE)) {
+            return when(side){
+                ConnectionSide.TOP->PointF((r.centerX()+offset).coerceIn(r.left+8f,r.right-8f),r.top)
+                ConnectionSide.RIGHT->PointF(r.right,(r.centerY()+offset).coerceIn(r.top+8f,r.bottom-8f))
+                ConnectionSide.BOTTOM->PointF((r.centerX()+offset).coerceIn(r.left+8f,r.right-8f),r.bottom)
+                ConnectionSide.LEFT->PointF(r.left,(r.centerY()+offset).coerceIn(r.top+8f,r.bottom-8f))
+                else->PointF(r.centerX(),r.centerY())
+            }
+        }
+        val path=if(e.customPoints.size>=3) {
+            smoothedClosedPath(e.customPoints.map{PointF(r.left+it.x*r.width(),r.top+it.y*r.height())},1)
+        } else shapePath(e,r)
+        val samples=512
+        val pts=ArrayList<PointF>(samples+1)
+        val m=PathMeasure(path,true)
+        val pos=FloatArray(2)
+        if(m.length>0f){
+            for(i in 0..samples){
+                m.getPosTan(m.length*i.toFloat()/samples,pos,null)
+                pts+=PointF(pos[0],pos[1])
+            }
+        }
+        val wantedX=(r.centerX()+offset).coerceIn(r.left,r.right)
+        val wantedY=(r.centerY()+offset).coerceIn(r.top,r.bottom)
+        var best:PointF?=null
+        fun consider(p:PointF){
+            when(side){
+                ConnectionSide.TOP->if(best==null||p.y<best!!.y)best=p
+                ConnectionSide.BOTTOM->if(best==null||p.y>best!!.y)best=p
+                ConnectionSide.LEFT->if(best==null||p.x<best!!.x)best=p
+                ConnectionSide.RIGHT->if(best==null||p.x>best!!.x)best=p
+                else->Unit
+            }
+        }
+        fun lineIntersect(a:PointF,b:PointF):PointF?{
+            if(side==ConnectionSide.TOP||side==ConnectionSide.BOTTOM){
+                val dx=b.x-a.x
+                if(abs(dx)<0.0001f){ if(abs(a.x-wantedX)<2f)return PointF(wantedX,a.y); return null }
+                val t=(wantedX-a.x)/dx
+                if(t>=0f&&t<=1f)return PointF(wantedX,a.y+(b.y-a.y)*t)
+            }else{
+                val dy=b.y-a.y
+                if(abs(dy)<0.0001f){ if(abs(a.y-wantedY)<2f)return PointF(a.x,wantedY); return null }
+                val t=(wantedY-a.y)/dy
+                if(t>=0f&&t<=1f)return PointF(a.x+(b.x-a.x)*t,wantedY)
+            }
+            return null
+        }
+        for(i in 0 until pts.lastIndex){ lineIntersect(pts[i],pts[i+1])?.let(::consider) }
+        return best ?: when(side){
+            ConnectionSide.TOP->PointF(wantedX,r.top)
+            ConnectionSide.RIGHT->PointF(r.right,wantedY)
+            ConnectionSide.BOTTOM->PointF(wantedX,r.bottom)
+            ConnectionSide.LEFT->PointF(r.left,wantedY)
+            else->PointF(r.centerX(),r.centerY())
+        }
+    }
+
+    private fun shapePath(e:FlowElement,r:RectF):Path{
+        val p=Path()
+        when(e.shape){
+            ShapeType.TRIANGLE->p.apply{moveTo(r.centerX(),r.top);lineTo(r.right,r.bottom);lineTo(r.left,r.bottom);close()}
+            ShapeType.STAR->return starPath(r)
+            ShapeType.CLOUD->return cloudPath(r)
+            ShapeType.TRAPEZOID_TOP_SHORT->p.apply{val inset=r.width()*.22f;moveTo(r.left+inset,r.top);lineTo(r.right-inset,r.top);lineTo(r.right,r.bottom);lineTo(r.left,r.bottom);close()}
+            ShapeType.TRAPEZOID_BOTTOM_SHORT->p.apply{val inset=r.width()*.22f;moveTo(r.left,r.top);lineTo(r.right,r.top);lineTo(r.right-inset,r.bottom);lineTo(r.left+inset,r.bottom);close()}
+            ShapeType.DIAMOND->p.apply{moveTo(r.centerX(),r.top);lineTo(r.right,r.centerY());lineTo(r.centerX(),r.bottom);lineTo(r.left,r.centerY());close()}
+            ShapeType.PARALLELOGRAM->p.apply{val s=min(25f,r.width()*.18f);moveTo(r.left+s,r.top);lineTo(r.right,r.top);lineTo(r.right-s,r.bottom);lineTo(r.left,r.bottom);close()}
+            ShapeType.CYLINDER->{val ry=min(18f,r.height()/5f);p.addRoundRect(r,ry,ry,Path.Direction.CW)}
+            ShapeType.DOCUMENT->p.apply{moveTo(r.left,r.top);lineTo(r.right,r.top);lineTo(r.right,r.bottom-14);quadTo(r.centerX(),r.bottom+10,r.left,r.bottom-14);close()}
+            ShapeType.HEXAGON->p.apply{val s=min(r.width()*.18f,r.height()*.35f);moveTo(r.left+s,r.top);lineTo(r.right-s,r.top);lineTo(r.right,r.centerY());lineTo(r.right-s,r.bottom);lineTo(r.left+s,r.bottom);lineTo(r.left,r.centerY());close()}
+            ShapeType.ROUNDED,ShapeType.EXTRA_ROUNDED->p.addRoundRect(r,if(e.shape==ShapeType.ROUNDED)18f else min(r.width(),r.height())*.22f,if(e.shape==ShapeType.ROUNDED)18f else min(r.width(),r.height())*.22f,Path.Direction.CW)
+            ShapeType.OVAL,ShapeType.CIRCLE->p.addOval(r,Path.Direction.CW)
+            else->p.addRect(r,Path.Direction.CW)
+        }
+        return p
+    }
     private fun endpointSide(e:FlowElement,p:PointF):ConnectionSide{val dl=abs(p.x-e.x);val dr=abs(p.x-(e.x+e.width));val dt=abs(p.y-e.y);val db=abs(p.y-(e.y+e.height));return when(minOf(dl,dr,dt,db)){dt->ConnectionSide.TOP;dr->ConnectionSide.RIGHT;db->ConnectionSide.BOTTOM;else->ConnectionSide.LEFT}}
 
     private fun buildConnectionPath(p1:PointF,p2:PointF,bx:Float,by:Float,index:Int):Path{val p=Path();p.moveTo(p1.x,p1.y);if(bx!=0f||by!=0f)p.quadTo((p1.x+p2.x)/2f+bx,(p1.y+p2.y)/2f+by,p2.x,p2.y)else{val dx=p2.x-p1.x;val dy=p2.y-p1.y;if(abs(dy)>=abs(dx)){val mid=(p1.y+p2.y)/2f+if(index%2==0)0f else 18f;p.cubicTo(p1.x,mid,p2.x,mid,p2.x,p2.y)}else{val mid=(p1.x+p2.x)/2f+if(index%2==0)0f else 18f;p.cubicTo(mid,p1.y,mid,p2.y,p2.x,p2.y)}};return p}
@@ -329,17 +395,12 @@ class FlowCanvasView(context: Context) : View(context) {
     }
 
     private fun faceEndpoint(e:FlowElement,side:ConnectionSide,index:Int,count:Int,pairedFaceLength:Float):PointF {
-        val center=explicitEndpoint(e,side)
-        if(count<=1)return center
+        if(count<=1)return shapeBoundaryEndpoint(e,side,0f)
         val faceLen=min(sideLength(e,side),pairedFaceLength).coerceAtLeast(24f)
         val usable=(faceLen-24f).coerceAtLeast(24f)
         val spacing=min(48f,usable/(count-1).coerceAtLeast(1))
         val offset=(index-(count-1)/2f)*spacing
-        return when(side){
-            ConnectionSide.TOP,ConnectionSide.BOTTOM -> PointF((center.x+offset).coerceIn(e.x+12f,e.x+e.width-12f),center.y)
-            ConnectionSide.LEFT,ConnectionSide.RIGHT -> PointF(center.x,(center.y+offset).coerceIn(e.y+12f,e.y+e.height-12f))
-            else -> center
-        }
+        return shapeBoundaryEndpoint(e,side,offset)
     }
 
     private fun buildDynamicRoutedPath(
@@ -450,8 +511,8 @@ class FlowCanvasView(context: Context) : View(context) {
     }
 
     private fun routeConnection(a:FlowElement,b:FlowElement,fromSide:ConnectionSide,toSide:ConnectionSide,gesture:List<PointF>):List<PointF>{
-        val start=explicitEndpoint(a,fromSide)
-        val end=explicitEndpoint(b,toSide)
+        val start=shapeBoundaryEndpoint(a,fromSide,0f)
+        val end=shapeBoundaryEndpoint(b,toSide,0f)
         val sourceOut=offsetFromSide(start,fromSide,64f)
         val targetOut=offsetFromSide(end,toSide,64f)
 
@@ -717,6 +778,8 @@ class FlowCanvasView(context: Context) : View(context) {
         for(e in document.elements.asReversed()){
             val r=RectF(e.x,e.y,e.x+e.width,e.y+e.height)
             for(side in sides){
+                // Connection-point hit testing follows the visible selection
+                // box, just like the connection-point UI.
                 val p=explicitEndpoint(e,side)
                 if(hypot(x-p.x,y-p.y)<=threshold)return e to side
             }
