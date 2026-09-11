@@ -25,7 +25,6 @@ import java.util.Base64
 import java.util.Date
 import java.text.SimpleDateFormat
 import java.util.Locale
-import kotlin.random.Random
 import java.io.File
 
 class MainActivity : Activity() {
@@ -893,9 +892,8 @@ class MainActivity : Activity() {
     }
 
     private fun newUntitledFileName(extension:String):String{
-        val date=SimpleDateFormat("dd-MM-yyyy",Locale.US).format(Date())
-        val random=Random.nextInt(100,1000)
-        return "FlowForge_${date}_${random}.$extension"
+        val stamp=SimpleDateFormat("yyMMdd_HHmmss",Locale.US).format(Date())
+        return "Untitled_$stamp.$extension"
     }
 
     private fun saveAs(){

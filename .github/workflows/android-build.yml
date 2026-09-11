@@ -1,4 +1,4 @@
-name: Build FlowForge v0.1.2-21
+name: Build FlowForge v0.1.7
 on:
   push:
   pull_request:
@@ -38,5 +38,5 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: flowforge-release-apk-v0.1.2-21-${{ github.run_number }}
+          name: flowforge-release-apk-v0.1.7
           path: app/build/outputs/apk/release/app-release.apk
