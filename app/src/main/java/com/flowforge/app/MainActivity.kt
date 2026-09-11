@@ -282,11 +282,11 @@ class MainActivity : Activity() {
             bar.addView(Space(this), LinearLayout.LayoutParams(0,1,1f))
         } else if(c!=null && !canvas.connectionMode){
             bar.visibility=View.VISIBLE; scroll.visibility=View.VISIBLE
+            bar.addView(smallButton("Edit"){showConnectionEditor(c)})
             bar.addView(smallButton("Reverse"){reverseConnection(c)})
             bar.addView(smallButton("Color"){showConnectionColorPicker(c)})
             bar.addView(smallButton("Style: ${lineStyleLabel(c.lineStyle)}"){cycleConnectionLineStyle(c)})
             bar.addView(smallButton("Arrows: ${arrowLabel(c.arrowType)}"){cycleConnectionArrow(c)})
-            bar.addView(smallButton("Edit"){showConnectionEditor(c)})
             bar.addView(smallButton("Delete"){deleteSelected()})
             bar.addView(Space(this), LinearLayout.LayoutParams(0,1,1f))
         } else if(canvas.connectionMode){
@@ -888,7 +888,7 @@ class MainActivity : Activity() {
         return runCatching{
             val text=if(documentFormat=="MERMAID") Mermaid.export(doc) else doc.toJson()
             contentResolver.openOutputStream(uri,"wt")!!.use{it.write(text.toByteArray(Charsets.UTF_8))}
-            documentDirty=false; touchRecent(uri,documentName); updateUi(); status?.post { updateUi() }; toast("Saved $documentName"); true
+            documentDirty=false; touchRecent(uri,documentName); toast("Saved $documentName"); true
         }.getOrElse{toast("Could not save $documentName");false}
     }
 
@@ -1004,14 +1004,14 @@ class MainActivity : Activity() {
             SAVE_MERMAID->runCatching{
                 runCatching{contentResolver.takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)}
                 contentResolver.openOutputStream(uri,"wt")!!.use{it.write(pendingText.toByteArray(Charsets.UTF_8))}
-                setSavedDocument(uri,"MERMAID","FlowForge document"); toast("Saved $documentName")
+                documentUri=uri; documentName=displayDocumentName(queryDisplayName(uri) ?: "FlowForge document"); documentFormat="MERMAID"; documentDirty=false; touchRecent(uri,documentName); toast("Saved $documentName")
                 pendingAfterSave?.invoke()
             }.onFailure{toast("Could not save Mermaid")}.also{pendingAfterSave=null}
 
             SAVE_JSON_AS->runCatching{
                 runCatching{contentResolver.takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)}
                 contentResolver.openOutputStream(uri,"wt")!!.use{it.write(doc.toJson().toByteArray(Charsets.UTF_8))}
-                setSavedDocument(uri,"JSON","FlowForge document"); toast("Saved $documentName")
+                documentUri=uri; documentName=displayDocumentName(queryDisplayName(uri) ?: "FlowForge document"); documentFormat="JSON"; documentDirty=false; touchRecent(uri,documentName); toast("Saved $documentName")
                 pendingAfterSave?.invoke()
             }.onFailure{toast("Could not save document")}.also{pendingAfterSave=null}
             OPEN_JSON->openJsonDocument(uri); IMPORT_JSON->importJson(uri); OPEN_MERMAID->importMermaid(uri); SAVE_PDF->exportPdf(uri,false); SAVE_PDF_DARK->exportPdf(uri,true); SAVE_IMAGE->exportPng(uri,false); SAVE_IMAGE_DARK->exportPng(uri,true)
@@ -1044,23 +1044,8 @@ class MainActivity : Activity() {
         return trimmed.replace(Regex("\\.flowforge\\.json$",RegexOption.IGNORE_CASE),"").ifBlank{"Untitled"}
     }
 
-    private fun setSavedDocument(uri:Uri, format:String, fallbackName:String){
-        documentUri=uri
-        val pickedName=queryDisplayName(uri)
-        documentName=displayDocumentName(pickedName ?: fallbackName)
-        documentFormat=format
-        documentDirty=false
-        touchRecent(uri,documentName)
-        // Force the visible status bar to refresh immediately. Some DocumentsUI
-        // providers return control before the normal lifecycle refresh occurs.
-        updateUi()
-        status?.post { updateUi() }
-    }
-
     private fun queryDisplayName(uri:Uri):String?{
-        contentResolver.query(uri,arrayOf(OpenableColumns.DISPLAY_NAME),null,null,null)?.use{
-            if(it.moveToFirst()) return it.getString(0)
-        }
+        contentResolver.query(uri,arrayOf(OpenableColumns.DISPLAY_NAME),null,null,null)?.use{if(it.moveToFirst())return it.getString(0)}
         return uri.lastPathSegment?.substringAfterLast('/')
     }
 
