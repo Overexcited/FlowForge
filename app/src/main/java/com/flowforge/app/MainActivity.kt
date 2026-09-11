@@ -368,7 +368,28 @@ class MainActivity : Activity() {
             setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
             elevation=dp(12).toFloat(); isOutsideTouchable=true
         }
-        if(anchor!=null) popup.showAsDropDown(anchor,-dp(2),dp(2)) else popup.showAtLocation(window.decorView,Gravity.CENTER,0,0)
+        fun installBlockOcclusion() {
+            outer.post {
+                val popupLoc = IntArray(2)
+                val canvasLoc = IntArray(2)
+                outer.getLocationOnScreen(popupLoc)
+                canvas.getLocationOnScreen(canvasLoc)
+                canvas.setPopupBlockOcclusion(RectF(
+                    (popupLoc[0] - canvasLoc[0]).toFloat(),
+                    (popupLoc[1] - canvasLoc[1]).toFloat(),
+                    (popupLoc[0] - canvasLoc[0] + outer.width).toFloat(),
+                    (popupLoc[1] - canvasLoc[1] + outer.height).toFloat()
+                ))
+            }
+        }
+        popup.setOnDismissListener { canvas.setPopupBlockOcclusion(null) }
+        if(anchor!=null) {
+            popup.showAsDropDown(anchor,-dp(2),dp(2))
+            installBlockOcclusion()
+        } else {
+            popup.showAtLocation(window.decorView,Gravity.CENTER,0,0)
+            installBlockOcclusion()
+        }
     }
 
     private fun showCompactPopup(anchor:View, title:String, items:List<String>, onChoice:(Int)->Unit){

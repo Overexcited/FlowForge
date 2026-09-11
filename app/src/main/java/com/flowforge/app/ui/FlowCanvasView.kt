@@ -34,6 +34,14 @@ class FlowCanvasView(context: Context) : View(context) {
     private var connectionStartId: String? = null
     private var connectionStartSide: ConnectionSide? = null
     private val customGesture = mutableListOf<PointF>()
+    // When a popup menu is open, hide only the block-rendering layer beneath it.
+    // The grid and connections remain visible through the popup's transparent gaps.
+    private var popupBlockOcclusion: RectF? = null
+
+    fun setPopupBlockOcclusion(rectInView: RectF?) {
+        popupBlockOcclusion = rectInView?.let { RectF(it) }
+        invalidate()
+    }
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = Typeface.DEFAULT }
@@ -83,7 +91,19 @@ class FlowCanvasView(context: Context) : View(context) {
     private fun drawContent(c: Canvas, includeSelection: Boolean) {
         if (gridVisible) drawGrid(c)
         document.connections.forEach { drawConnection(c, it) }
-        document.elements.forEach { drawElement(c, it) }
+        val occlusionWorld = popupBlockOcclusion?.let { r ->
+            RectF(
+                (r.left - panX) / scale,
+                (r.top - panY) / scale,
+                (r.right - panX) / scale,
+                (r.bottom - panY) / scale
+            )
+        }
+        document.elements.forEach { element ->
+            if (occlusionWorld == null || !RectF(element.x, element.y, element.x + element.width, element.y + element.height).intersects(occlusionWorld)) {
+                drawElement(c, element)
+            }
+        }
         if (includeSelection && connectionMode) document.elements.forEach { drawConnectionTargets(c, it) }
         if (customShapeMode && customGesture.size > 1) drawCustomPreview(c)
         if (includeSelection) selectedElement()?.let { drawSelection(c, it) }
