@@ -338,7 +338,8 @@ class MainActivity : Activity() {
         }
         outer.addView(TextView(this).apply{
             text=title; textSize=14f; setTypeface(null,Typeface.BOLD);
-            setTextColor(if(dark)Color.WHITE else 0xff172033.toInt());
+            // Keep the title row's exact size/padding, but hide the title text.
+            setTextColor(Color.TRANSPARENT)
             gravity=Gravity.CENTER_VERTICAL; includeFontPadding=false
             setPadding(dp(10),dp(6),dp(10),dp(8))
         },LinearLayout.LayoutParams(dp(280),dp(34)))
