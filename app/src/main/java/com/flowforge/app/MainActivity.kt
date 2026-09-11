@@ -43,6 +43,8 @@ class MainActivity : Activity() {
     private var documentUri: Uri? = null
     private var documentDirty = false
     private var pendingAfterSave:(()->Unit)? = null
+    // The application chrome is permanently dark. The preference below controls only the canvas.
+    private val uiDark = true
 
     companion object {
         private const val SAVE_JSON = 10; private const val SAVE_MERMAID = 11
@@ -127,7 +129,7 @@ class MainActivity : Activity() {
         canvas = FlowCanvasView(this)
 
         val root = FrameLayout(this).apply {
-            setBackgroundColor(if (canvas.darkMode) 0xff0f172a.toInt() else Color.WHITE)
+            setBackgroundColor(if (uiDark) 0xff0f172a.toInt() else Color.WHITE)
         }
         root.setOnApplyWindowInsetsListener { v, insets ->
             val top = if (android.os.Build.VERSION.SDK_INT >= 30) insets.getInsets(WindowInsets.Type.statusBars()).top else insets.systemWindowInsetTop
@@ -139,7 +141,7 @@ class MainActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(6), dp(5), dp(6), dp(5))
-            setBackgroundColor(if (canvas.darkMode) 0xff020617.toInt() else 0xff0f172a.toInt())
+            setBackgroundColor(if (uiDark) 0xff020617.toInt() else 0xff0f172a.toInt())
         }
         top.addView(iconButton("☰", "Menu") { mainMenu() }.also { menuButton = it })
         top.addView(TextView(this).apply {
@@ -151,19 +153,19 @@ class MainActivity : Activity() {
         top.addView(iconButton("＋", "Add") { addMenu() }.also { addButton = it })
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(if (canvas.darkMode) 0xff0f172a.toInt() else Color.WHITE)
+            setBackgroundColor(if (uiDark) 0xff0f172a.toInt() else Color.WHITE)
         }
         content.addView(top, LinearLayout.LayoutParams(-1, dp(62)))
 
         status = TextView(this).apply {
             textSize = 12f; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(12), 0, dp(12), 0)
-            setTextColor(Color.WHITE); setBackgroundColor(if (canvas.darkMode) 0xff273449.toInt() else 0xffe2e8f0.toInt())
+            setTextColor(Color.WHITE); setBackgroundColor(if (uiDark) 0xff273449.toInt() else 0xffe2e8f0.toInt())
         }
         content.addView(status, LinearLayout.LayoutParams(-1, dp(28)))
 
         contextBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(8), dp(4), dp(8), dp(4)); setBackgroundColor(if (canvas.darkMode) 0xff111827.toInt() else 0xfff8fafc.toInt()); visibility = View.GONE
+            setPadding(dp(8), dp(4), dp(8), dp(4)); setBackgroundColor(if (uiDark) 0xff111827.toInt() else 0xfff8fafc.toInt()); visibility = View.GONE
         }
         contextScroll = HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
@@ -210,7 +212,7 @@ class MainActivity : Activity() {
         // 32dp height gives roughly the same visual padding above/below as the 9dp
         // left/right padding used here.
         setPadding(dp(9),0,dp(9),0)
-        val dark=canvas.darkMode
+        val dark=uiDark
         setTextColor(if(dark) Color.WHITE else 0xff172033.toInt())
         background=GradientDrawable().apply{
             cornerRadius=dp(7).toFloat()
@@ -227,13 +229,13 @@ class MainActivity : Activity() {
     private fun updateUi() {
         undoButton?.isEnabled=history.canUndo(); undoButton?.alpha=if(history.canUndo())1f else 0.45f
         redoButton?.isEnabled=history.canRedo(); redoButton?.alpha=if(history.canRedo())1f else 0.45f
-        contextBar?.setBackgroundColor(if(canvas.darkMode)0xff111827.toInt() else 0xfff8fafc.toInt())
-        contextScroll?.setBackgroundColor(if(canvas.darkMode)0xff111827.toInt() else 0xfff8fafc.toInt())
+        contextBar?.setBackgroundColor(if(uiDark)0xff111827.toInt() else 0xfff8fafc.toInt())
+        contextScroll?.setBackgroundColor(if(uiDark)0xff111827.toInt() else 0xfff8fafc.toInt())
         val statusView = status
         if (canvas.connectionMode) {
             statusView?.apply {
-                setBackgroundColor(if(canvas.darkMode) 0xff123524.toInt() else 0xffdcfce7.toInt())
-                setTextColor(if(canvas.darkMode) 0xff86efac.toInt() else 0xff166534.toInt())
+                setBackgroundColor(if(uiDark) 0xff123524.toInt() else 0xffdcfce7.toInt())
+                setTextColor(if(uiDark) 0xff86efac.toInt() else 0xff166534.toInt())
                 textSize = 14f
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
                 gravity = Gravity.CENTER
@@ -242,7 +244,7 @@ class MainActivity : Activity() {
             }
         } else {
             statusView?.apply {
-                setBackgroundColor(if(canvas.darkMode)0xff273449.toInt() else 0xffe2e8f0.toInt())
+                setBackgroundColor(if(uiDark)0xff273449.toInt() else 0xffe2e8f0.toInt())
                 setTextColor(Color.WHITE)
                 textSize = 12f
                 typeface = android.graphics.Typeface.DEFAULT
@@ -258,7 +260,7 @@ class MainActivity : Activity() {
         val c=canvas.selectedConnectionId?.let{id->doc.connections.firstOrNull{it.id==id}}
         if(canvas.customShapeMode){
             bar.visibility=View.VISIBLE; scroll.visibility=View.VISIBLE
-            bar.addView(TextView(this).apply{text="Draw Custom Shape";textSize=12f;setTextColor(if(canvas.darkMode)Color.WHITE else 0xff172033.toInt());setPadding(4,0,dp(8),0)},LinearLayout.LayoutParams(0,WRAP_CONTENT,1f))
+            bar.addView(TextView(this).apply{text="Draw Custom Shape";textSize=12f;setTextColor(if(uiDark)Color.WHITE else 0xff172033.toInt());setPadding(4,0,dp(8),0)},LinearLayout.LayoutParams(0,WRAP_CONTENT,1f))
             bar.addView(smallButton("✓"){canvas.commitCustomShape()})
             bar.addView(smallButton("Cancel"){canvas.cancelCustomShapeMode()})
         } else if(e!=null && !canvas.connectionMode){
@@ -329,7 +331,7 @@ class MainActivity : Activity() {
     }
 
     private fun showStyledPopup(title:String, items:List<String>, anchor:View?=null, separatorBefore:Set<Int> = emptySet(), onChoice:(Int)->Unit){
-        val dark=canvas.darkMode
+        val dark=uiDark
         lateinit var popup: PopupWindow
         val outer=LinearLayout(this).apply{
             orientation=LinearLayout.VERTICAL
@@ -478,7 +480,7 @@ class MainActivity : Activity() {
     }
 
     private fun showElementEditor(e:FlowElement){
-        val dark=canvas.darkMode
+        val dark=uiDark
         val box=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(22),dp(6),dp(22),dp(4));background=GradientDrawable().apply{cornerRadius=dp(18).toFloat();setColor(if(dark)0xff0f172a.toInt() else Color.WHITE)}}
         val fieldText=if(dark)Color.WHITE else 0xff172033.toInt(); val fieldHint=if(dark)0xff94a3b8.toInt() else 0xff64748b.toInt()
         fun edit(initial:String,hintText:String,minLines:Int=1,multiline:Boolean=false)=EditText(this).apply{
@@ -558,7 +560,7 @@ class MainActivity : Activity() {
     private fun resetElement(e:FlowElement){val before=doc.deepCopy();e.shape=FlowElement.defaultShape(e.type);e.width=270f;e.height=135f;e.outlineThickness=LineThickness.DEFAULT;e.outlineLineStyle=LineStyle.SOLID;e.outlineColor=null;e.fillColor=null;e.labelColor=null;e.labelTextSize=TextSize.MEDIUM;e.labelBold=false;e.labelItalic=false;e.labelUnderline=false;e.labelFont=TextFont.SANS;e.customPoints.clear();history.record(before,doc.deepCopy());canvas.invalidate();updateUi()}
 
     private fun thicknessSpinner(current:LineThickness):Spinner {
-        val names=listOf("Default","Medium","Large"); val dark=canvas.darkMode
+        val names=listOf("Default","Medium","Large"); val dark=uiDark
         return Spinner(this).apply{
             adapter=object:ArrayAdapter<String>(this@MainActivity,android.R.layout.simple_spinner_item,names){
                 override fun getView(position:Int,convertView:View?,parent:ViewGroup):View{return super.getView(position,convertView,parent).apply{setBackgroundColor(if(dark)0xff1e293b.toInt() else Color.WHITE);(this as? TextView)?.apply{setTextColor(if(dark)Color.WHITE else 0xff172033.toInt());setPadding(dp(10),dp(8),dp(10),dp(8))}}}
@@ -569,7 +571,7 @@ class MainActivity : Activity() {
     }
 
     private fun outlineStyleSpinner(current:LineStyle):Spinner {
-        val names=listOf("Solid","Dashed","Dotted"); val dark=canvas.darkMode
+        val names=listOf("Solid","Dashed","Dotted"); val dark=uiDark
         return Spinner(this).apply{
             adapter=object:ArrayAdapter<String>(this@MainActivity,android.R.layout.simple_spinner_item,names){
                 override fun getView(position:Int,convertView:View?,parent:ViewGroup):View{return super.getView(position,convertView,parent).apply{setBackgroundColor(if(dark)0xff1e293b.toInt() else Color.WHITE);(this as? TextView)?.apply{setTextColor(if(dark)Color.WHITE else 0xff172033.toInt());setPadding(dp(10),dp(8),dp(10),dp(8))}}}
@@ -581,7 +583,7 @@ class MainActivity : Activity() {
 
     private fun textSizeSpinner(current: TextSize): Spinner {
         val names=listOf("Small","Normal","Medium","Large","Extra large","Huge")
-        val dark=canvas.darkMode
+        val dark=uiDark
         return Spinner(this).apply{
             adapter=object:ArrayAdapter<String>(this@MainActivity,android.R.layout.simple_spinner_item,names){
                 override fun getView(position:Int,convertView:View?,parent:ViewGroup):View{return super.getView(position,convertView,parent).apply{setBackgroundColor(if(dark)0xff1e293b.toInt() else Color.WHITE);(this as? TextView)?.apply{setTextColor(if(dark)Color.WHITE else 0xff172033.toInt());setPadding(dp(10),dp(8),dp(10),dp(8))}}}
@@ -593,7 +595,7 @@ class MainActivity : Activity() {
 
     private fun fontSpinner(current: TextFont): Spinner {
         val names=listOf("Sans Serif","Serif","Monospace","Sans Serif Condensed","Sans Serif Light")
-        val dark=canvas.darkMode
+        val dark=uiDark
         return Spinner(this).apply{
             adapter=object:ArrayAdapter<String>(this@MainActivity,android.R.layout.simple_spinner_item,names){
                 override fun getView(position:Int,convertView:View?,parent:ViewGroup):View{return super.getView(position,convertView,parent).apply{setBackgroundColor(if(dark)0xff1e293b.toInt() else Color.WHITE);(this as? TextView)?.apply{setTextColor(if(dark)Color.WHITE else 0xff172033.toInt());setPadding(dp(10),dp(8),dp(10),dp(8))}}}
@@ -656,7 +658,7 @@ class MainActivity : Activity() {
     )
 
     private fun fillColorSpinner(current:Int?):Spinner {
-        val colors=fillColors(); val names=colors.keys.toList(); val dark=canvas.darkMode
+        val colors=fillColors(); val names=colors.keys.toList(); val dark=uiDark
         return Spinner(this).apply{
             adapter=colorSpinnerAdapter(names,colors.values.toList(),dark)
             val idx=colors.values.indexOf(current);setSelection(if(idx>=0)idx else 0);setBackgroundColor(if(dark)0xff1e293b.toInt() else 0xfff1f5f9.toInt())
@@ -671,7 +673,7 @@ class MainActivity : Activity() {
     )
 
     private fun outlineColorSpinner(current:Int?): Spinner {
-        val colors=outlineColors(); val names=colors.keys.toList(); val dark=canvas.darkMode
+        val colors=outlineColors(); val names=colors.keys.toList(); val dark=uiDark
         val displayColors=colors.values.map{it?:if(dark)0xff94a3b8.toInt() else 0xff334155.toInt()}
         return Spinner(this).apply{
             adapter=colorSpinnerAdapter(names,displayColors,dark)
@@ -687,7 +689,7 @@ class MainActivity : Activity() {
     )
 
     private fun labelColorSpinner(current:Int?): Spinner {
-        val colors=labelColors(); val names=colors.keys.toList(); val dark=canvas.darkMode
+        val colors=labelColors(); val names=colors.keys.toList(); val dark=uiDark
         val displayColors=colors.values.map{it?:if(dark)Color.WHITE else 0xff172033.toInt()}
         return Spinner(this).apply{
             adapter=colorSpinnerAdapter(names,displayColors,dark)
@@ -705,7 +707,7 @@ class MainActivity : Activity() {
     private fun connectionColorSpinner(current:Int): Spinner {
         val colors=connectionColors()
         val names=colors.keys.toList()
-        val dark=canvas.darkMode
+        val dark=uiDark
         return Spinner(this).apply{
             adapter=colorSpinnerAdapter(names,colors.values.toList(),dark)
             setSelection(colors.values.indexOf(current).takeIf{it>=0} ?: 0)
@@ -716,12 +718,12 @@ class MainActivity : Activity() {
     private fun editorLabel(text:String)=TextView(this).apply{
         this.text=text
         textSize=13f
-        setTextColor(if(canvas.darkMode)Color.WHITE else 0xff172033.toInt())
+        setTextColor(if(uiDark)Color.WHITE else 0xff172033.toInt())
         setPadding(0,dp(10),0,dp(3))
     }
 
     private fun showConnectionEditor(c:FlowConnection){
-        val dark=canvas.darkMode
+        val dark=uiDark
         val box=LinearLayout(this).apply{
             orientation=LinearLayout.VERTICAL
             setPadding(dp(22),dp(6),dp(22),dp(4))
@@ -798,10 +800,10 @@ class MainActivity : Activity() {
                 history.record(before,doc.deepCopy());documentDirty=true;canvas.invalidate();updateUi()
             }.setNegativeButton("Cancel",null).create()
         dialog.setOnShowListener{
-            val textColor=if(canvas.darkMode)Color.WHITE else 0xff172033.toInt()
+            val textColor=if(uiDark)Color.WHITE else 0xff172033.toInt()
             dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(textColor)
             dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.setTextColor(textColor)
-            dialog.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(if(canvas.darkMode)0xff0f172a.toInt() else Color.WHITE))
+            dialog.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(0xff0f172a.toInt()))
         }
         dialog.show()
     }
@@ -809,7 +811,7 @@ class MainActivity : Activity() {
     private fun showConnectionColorPicker(c:FlowConnection){
         val colors=connectionColors()
         val names=colors.keys.toList()
-        val adapter=colorSpinnerAdapter(names,colors.values.toList(),canvas.darkMode)
+        val adapter=colorSpinnerAdapter(names,colors.values.toList(),uiDark)
         dialogBuilder().setTitle("Connection colour").setAdapter(adapter){_,which->
             val before=doc.deepCopy();c.color=colors[names[which]]!!;history.record(before,doc.deepCopy());documentDirty=true;canvas.invalidate();updateUi()
         }.show()
@@ -823,7 +825,7 @@ class MainActivity : Activity() {
     private fun cloneElement(e:FlowElement){val before=doc.deepCopy();val copy=e.copy(id=java.util.UUID.randomUUID().toString(),x=e.x+maxOf(canvas.gridSize,40f),y=e.y+maxOf(canvas.gridSize,40f));var tries=0;while(doc.elements.any{overlaps(it,copy)}&&tries<20){copy.x+=40f;copy.y+=40f;tries++};doc.elements+=copy;canvas.selectedElementId=copy.id;canvas.selectedConnectionId=null;history.record(before,doc.deepCopy());canvas.invalidate();updateUi()}
     private fun overlaps(a:FlowElement,b:FlowElement)=a.x<b.x+b.width&&a.x+a.width>b.x&&a.y<b.y+b.height&&a.y+a.height>b.y
 
-    private fun saveAsset(e:FlowElement){val input=EditText(this).apply{hint="Building block name";setText(e.label.ifBlank{"Building block"});setTextColor(if(canvas.darkMode)Color.WHITE else 0xff172033.toInt());setHintTextColor(if(canvas.darkMode)0xff94a3b8.toInt() else 0xff64748b.toInt())};dialogBuilder().setTitle("Save as Building Block").setMessage("Saves this block only — connections are not included.").setView(input).setPositiveButton("Save"){_,_->assets.save(ElementAsset(name=input.text.toString().trim().ifBlank{"Building block"},element=e.copy(id=java.util.UUID.randomUUID().toString(),x=0f,y=0f)));toast("Building block saved")}.setNegativeButton("Cancel",null).show()}
+    private fun saveAsset(e:FlowElement){val input=EditText(this).apply{hint="Building block name";setText(e.label.ifBlank{"Building block"});setTextColor(if(uiDark)Color.WHITE else 0xff172033.toInt());setHintTextColor(if(uiDark)0xff94a3b8.toInt() else 0xff64748b.toInt())};dialogBuilder().setTitle("Save as Building Block").setMessage("Saves this block only — connections are not included.").setView(input).setPositiveButton("Save"){_,_->assets.save(ElementAsset(name=input.text.toString().trim().ifBlank{"Building block"},element=e.copy(id=java.util.UUID.randomUUID().toString(),x=0f,y=0f)));toast("Building block saved")}.setNegativeButton("Cancel",null).show()}
     private fun assetPicker(){
         val list=assets.all()
         if(list.isEmpty()){dialogBuilder().setTitle("Building Blocks").setMessage("No saved building blocks yet. Select a block and use Save Block.").setPositiveButton("OK",null).show();return}
@@ -1063,12 +1065,12 @@ class MainActivity : Activity() {
     private fun redo(){history.redo(doc)?.let{doc=it;canvas.document=doc;canvas.selectedElementId=null;canvas.selectedConnectionId=null;documentDirty=true;canvas.invalidate();updateUi()}}
 
     private fun dialogBuilder(): AlertDialog.Builder {
-        val theme = if (canvas.darkMode) android.R.style.Theme_Material_Dialog_Alert else android.R.style.Theme_Material_Light_Dialog_Alert
+        val theme = if (uiDark) android.R.style.Theme_Material_Dialog_Alert else android.R.style.Theme_Material_Light_Dialog_Alert
         return AlertDialog.Builder(this, theme)
     }
 
     private fun settings(){
-        val dark=canvas.darkMode
+        val dark=uiDark
         val box=LinearLayout(this).apply{
             orientation=LinearLayout.VERTICAL
             setPadding(dp(22),dp(8),dp(22),dp(4))
@@ -1076,23 +1078,23 @@ class MainActivity : Activity() {
         }
         fun check(text:String,value:Boolean,on:(Boolean)->Unit)=CheckBox(this).apply{
             this.text=text; isChecked=value
-            setTextColor(if(canvas.darkMode) Color.WHITE else 0xff172033.toInt())
-            buttonTintList=if(android.os.Build.VERSION.SDK_INT>=21) android.content.res.ColorStateList.valueOf(if(canvas.darkMode)0xffcbd5e1.toInt() else 0xff334155.toInt()) else null
+            setTextColor(if(uiDark) Color.WHITE else 0xff172033.toInt())
+            buttonTintList=if(android.os.Build.VERSION.SDK_INT>=21) android.content.res.ColorStateList.valueOf(if(uiDark)0xffcbd5e1.toInt() else 0xff334155.toInt()) else null
             setOnCheckedChangeListener{_,v->on(v)}
         }
         fun settingsButton(text:String, action:()->Unit)=Button(this).apply{
             this.text=text; isAllCaps=false; minHeight=0; minimumHeight=0
-            setTextColor(if(canvas.darkMode)Color.WHITE else 0xff172033.toInt())
+            setTextColor(if(uiDark)Color.WHITE else 0xff172033.toInt())
             background=GradientDrawable().apply{
                 cornerRadius=dp(8).toFloat()
-                setColor(if(canvas.darkMode)0xff1e293b.toInt() else 0xfff1f5f9.toInt())
-                setStroke(dp(1),if(canvas.darkMode)0xff475569.toInt() else 0xffcbd5e1.toInt())
+                setColor(if(uiDark)0xff1e293b.toInt() else 0xfff1f5f9.toInt())
+                setStroke(dp(1),if(uiDark)0xff475569.toInt() else 0xffcbd5e1.toInt())
             }
             setOnClickListener{action()}
         }
         val grid=check("Show background grid",canvas.gridVisible){canvas.gridVisible=it;prefs.edit().putBoolean("gridVisible",it).apply();canvas.invalidate()}
         val snap=check("Snap blocks to grid",canvas.snapToGrid){canvas.snapToGrid=it;prefs.edit().putBoolean("snapToGrid",it).apply();updateUi()}
-        val darkBox=check("Dark mode",canvas.darkMode){ }
+        val darkBox=check("Dark canvas",canvas.darkMode){ }
         box.addView(grid);box.addView(snap);box.addView(darkBox)
         box.addView(settingsButton("Fit diagram to screen"){canvas.fitContent()})
         box.addView(settingsButton("Reset zoom / position"){canvas.fitContent()})
@@ -1100,7 +1102,7 @@ class MainActivity : Activity() {
         box.addView(settingsButton("Clear Building Blocks"){assets.clear();toast("Building blocks cleared")})
         val dialog=dialogBuilder().setTitle("Settings").setView(box).setPositiveButton("Done",null).setNegativeButton("Cancel",null).create()
         fun restyleSettings(){
-            val nowDark=canvas.darkMode
+            val nowDark=uiDark
             val textColor=if(nowDark)Color.WHITE else 0xff172033.toInt()
             val buttonBg=if(nowDark)0xff1e293b.toInt() else 0xfff1f5f9.toInt()
             val stroke=if(nowDark)0xff475569.toInt() else 0xffcbd5e1.toInt()
@@ -1127,37 +1129,35 @@ class MainActivity : Activity() {
             updateUi()
         }
         dialog.setOnShowListener{
-            val buttonColor=if(canvas.darkMode)Color.WHITE else 0xff172033.toInt()
+            val buttonColor=Color.WHITE
             dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(buttonColor)
             dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.setTextColor(buttonColor)
-            dialog.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(if(canvas.darkMode)0xff0f172a.toInt() else Color.WHITE))
+            dialog.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(0xff0f172a.toInt()))
         }
         dialog.show()
     }
     private fun applyThemeChrome(){
-        val dark=canvas.darkMode
+        // The application chrome is permanently dark. The canvas alone may be light/dark.
         window.statusBarColor=Color.TRANSPARENT
         window.navigationBarColor=Color.TRANSPARENT
         if(android.os.Build.VERSION.SDK_INT>=28) window.navigationBarDividerColor=Color.TRANSPARENT
-        var flags=View.SYSTEM_UI_FLAG_LAYOUT_STABLE or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-        if(!dark && android.os.Build.VERSION.SDK_INT>=23) flags=flags or View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
-        if(!dark && android.os.Build.VERSION.SDK_INT>=26) flags=flags or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+        val flags=View.SYSTEM_UI_FLAG_LAYOUT_STABLE or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
         window.decorView.systemUiVisibility=flags
         window.decorView.findViewById<View>(android.R.id.content)?.let{root->
-            root.setBackgroundColor(if(dark)Color.BLACK else Color.WHITE)
+            root.setBackgroundColor(Color.BLACK)
             if(root is ViewGroup && root.childCount>0){
-                val content=root.getChildAt(0); content.setBackgroundColor(if(dark)Color.BLACK else Color.WHITE)
+                val content=root.getChildAt(0); content.setBackgroundColor(Color.BLACK)
                 if(content is ViewGroup && content.childCount>=3){
-                    content.getChildAt(0).setBackgroundColor(if(dark)0xff020617.toInt() else 0xff0f172a.toInt())
-                    content.getChildAt(1).setBackgroundColor(if(dark)Color.BLACK else 0xffe2e8f0.toInt())
-                    content.getChildAt(2).setBackgroundColor(if(dark)0xff111827.toInt() else 0xfff8fafc.toInt())
+                    content.getChildAt(0).setBackgroundColor(0xff020617.toInt())
+                    content.getChildAt(1).setBackgroundColor(0xff273449.toInt())
+                    content.getChildAt(2).setBackgroundColor(0xff111827.toInt())
                     val ctx=content.getChildAt(2)
                     fun recolor(v:View){
                         when(v){
-                            is TextView -> v.setTextColor(if(dark)Color.WHITE else 0xff172033.toInt())
+                            is TextView -> v.setTextColor(Color.WHITE)
                             is Button -> {
-                                v.setTextColor(if(dark)Color.WHITE else 0xff172033.toInt())
-                                v.background=GradientDrawable().apply{cornerRadius=dp(8).toFloat();setColor(if(dark)0xff1e293b.toInt() else 0xffe2e8f0.toInt());setStroke(dp(1),if(dark)0xff475569.toInt() else 0xffcbd5e1.toInt())}
+                                v.setTextColor(Color.WHITE)
+                                v.background=GradientDrawable().apply{cornerRadius=dp(8).toFloat();setColor(0xff1e293b.toInt());setStroke(dp(1),0xff475569.toInt())}
                             }
                         }
                         if(v is ViewGroup) for(i in 0 until v.childCount) recolor(v.getChildAt(i))
