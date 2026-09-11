@@ -107,6 +107,28 @@ class FlowCanvasView(context: Context) : View(context) {
         if (includeSelection && connectionMode) document.elements.forEach { drawConnectionTargets(c, it) }
         if (customShapeMode && customGesture.size > 1) drawCustomPreview(c)
         if (includeSelection) selectedElement()?.let { drawSelection(c, it) }
+
+        // PopupWindow is a separate window, so merely skipping block drawing can
+        // still leave previously composited canvas pixels visible through its
+        // transparent gaps. Paint a canvas-layer mask over the popup footprint
+        // instead: it hides blocks, connections and selection graphics while
+        // redrawing the grid so the popup background remains visually transparent.
+        if (includeSelection) popupBlockOcclusion?.let { r ->
+            val mask = RectF(
+                (r.left - panX) / scale,
+                (r.top - panY) / scale,
+                (r.right - panX) / scale,
+                (r.bottom - panY) / scale
+            )
+            c.save()
+            c.clipRect(mask)
+            paint.pathEffect = null
+            paint.style = Paint.Style.FILL
+            paint.color = if (darkMode) Color.rgb(15, 23, 42) else Color.WHITE
+            c.drawRect(mask, paint)
+            drawGrid(c)
+            c.restore()
+        }
     }
     private fun drawGrid(c: Canvas) {
         gridPaint.color = if (darkMode) 0x405b7088 else 0x30475a6b; gridPaint.strokeWidth = 1f

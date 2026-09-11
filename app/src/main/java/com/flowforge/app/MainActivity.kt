@@ -835,7 +835,7 @@ class MainActivity : Activity() {
     private fun showNotes(e:FlowElement){dialogBuilder().setTitle("Notes — ${e.label}").setMessage(e.notes.ifBlank{"No notes attached."}).setPositiveButton("Close",null).show()}
     private fun templates(){
         val built=Templates.all()
-        val names=built.map{"From Template • ${it.first}"}
+        val names=built.map{it.first}
         showCompactPopup(addButton ?: canvas,"Templates",names,{ which -> chooseTemplate(built[which].second()) })
     }
 
