@@ -23,6 +23,9 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 import java.util.Base64
 import java.util.Date
+import java.text.SimpleDateFormat
+import java.util.Locale
+import kotlin.random.Random
 import java.io.File
 
 class MainActivity : Activity() {
@@ -41,6 +44,8 @@ class MainActivity : Activity() {
     private var pendingText = ""
     private var documentName = "Untitled"
     private var documentUri: Uri? = null
+    // Only these two formats represent the editable document itself. Image/PDF exports never set this.
+    private var documentFormat = "NONE"
     private var documentDirty = false
     private var pendingAfterSave:(()->Unit)? = null
     // The application chrome is permanently dark. The preference below controls only the canvas.
@@ -81,6 +86,7 @@ class MainActivity : Activity() {
             state.put("document", doc.toJson())
             state.put("documentName", documentName)
             state.put("documentUri", documentUri?.toString() ?: JSONObject.NULL)
+            state.put("documentFormat", documentFormat)
             state.put("documentDirty", documentDirty)
             state.put("history", history.toJson())
             state.put("selectedElementId", canvas.selectedElementId ?: JSONObject.NULL)
@@ -112,6 +118,8 @@ class MainActivity : Activity() {
             } else {
                 "Untitled"
             }
+            documentFormat = state.optString("documentFormat", if (documentUri != null) "JSON" else "NONE").uppercase(Locale.US)
+            if (documentUri == null) documentFormat = "NONE"
             documentDirty = state.optBoolean("documentDirty", false)
             history = HistoryManager.fromJson(state.optString("history", ""), 2000)
             canvas.restoreViewportState(state.optString("viewport", ""))
@@ -860,6 +868,7 @@ class MainActivity : Activity() {
         canvas.selectedConnectionId=null
         documentName="Untitled"
         documentUri=null
+        documentFormat="NONE"
         documentDirty=true
         canvas.fitContent()
         canvas.invalidate()
@@ -869,16 +878,24 @@ class MainActivity : Activity() {
     private data class RecentDocument(val uri:String,val name:String,val accessed:Long)
 
     private fun saveCurrentThen(afterSave:()->Unit){
-        if(documentUri==null){ pendingAfterSave=afterSave; startSaveAsJson() }
+        if(documentUri==null || documentFormat !in setOf("JSON","MERMAID")){ pendingAfterSave=afterSave; startSaveAsJson() }
         else if(saveCurrent()) afterSave()
     }
 
     private fun saveCurrent():Boolean{
-        val uri=documentUri ?: run { startSaveAsJson(); return false }
+        val uri=documentUri
+        if(uri==null || documentFormat !in setOf("JSON","MERMAID")){ startSaveAsJson(); return false }
         return runCatching{
-            contentResolver.openOutputStream(uri,"wt")!!.use{it.write(doc.toJson().toByteArray())}
+            val text=if(documentFormat=="MERMAID") Mermaid.export(doc) else doc.toJson()
+            contentResolver.openOutputStream(uri,"wt")!!.use{it.write(text.toByteArray(Charsets.UTF_8))}
             documentDirty=false; touchRecent(uri,documentName); toast("Saved $documentName"); true
         }.getOrElse{toast("Could not save $documentName");false}
+    }
+
+    private fun newUntitledFileName(extension:String):String{
+        val date=SimpleDateFormat("dd-MM-yyyy",Locale.US).format(Date())
+        val random=Random.nextInt(100,1000)
+        return "FlowForge_${date}_${random}.$extension"
     }
 
     private fun saveAs(){
@@ -890,16 +907,16 @@ class MainActivity : Activity() {
         showCenteredCompactPopup("Save As…",labels){which->when(which){
             0->startSaveAsJson()
             1->startSaveAsMermaid()
-            2->startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply{type="image/png";putExtra(Intent.EXTRA_TITLE,"flowchart.png");addCategory(Intent.CATEGORY_OPENABLE)},SAVE_IMAGE)
-            3->startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply{type="image/png";putExtra(Intent.EXTRA_TITLE,"flowchart-dark.png");addCategory(Intent.CATEGORY_OPENABLE)},SAVE_IMAGE_DARK)
-            4->startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply{type="application/pdf";putExtra(Intent.EXTRA_TITLE,"flowchart.pdf");addCategory(Intent.CATEGORY_OPENABLE)},SAVE_PDF)
-            5->startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply{type="application/pdf";putExtra(Intent.EXTRA_TITLE,"flowchart-dark.pdf");addCategory(Intent.CATEGORY_OPENABLE)},SAVE_PDF_DARK)
+            2->startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply{type="image/png";putExtra(Intent.EXTRA_TITLE,newUntitledFileName("png"));addCategory(Intent.CATEGORY_OPENABLE)},SAVE_IMAGE)
+            3->startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply{type="image/png";putExtra(Intent.EXTRA_TITLE,newUntitledFileName("dark.png"));addCategory(Intent.CATEGORY_OPENABLE)},SAVE_IMAGE_DARK)
+            4->startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply{type="application/pdf";putExtra(Intent.EXTRA_TITLE,newUntitledFileName("pdf"));addCategory(Intent.CATEGORY_OPENABLE)},SAVE_PDF)
+            5->startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply{type="application/pdf";putExtra(Intent.EXTRA_TITLE,newUntitledFileName("dark.pdf"));addCategory(Intent.CATEGORY_OPENABLE)},SAVE_PDF_DARK)
         }}
     }
 
     private fun startSaveAsJson(){
         startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply{
-            type="application/json"; putExtra(Intent.EXTRA_TITLE,if(documentName=="Untitled")"flowchart.flowforge.json" else documentName)
+            type="application/json"; putExtra(Intent.EXTRA_TITLE,if(documentName=="Untitled")newUntitledFileName("flowforge.json") else documentName)
             addCategory(Intent.CATEGORY_OPENABLE)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
         },SAVE_JSON_AS)
@@ -907,7 +924,7 @@ class MainActivity : Activity() {
 
     private fun startSaveAsMermaid(){
         pendingText=Mermaid.export(doc)
-        startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply{type="text/plain";putExtra(Intent.EXTRA_TITLE,"flowchart.mmd");addCategory(Intent.CATEGORY_OPENABLE)},SAVE_MERMAID)
+        startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply{type="text/plain";putExtra(Intent.EXTRA_TITLE,if(documentName=="Untitled")newUntitledFileName("mmd") else documentName);addCategory(Intent.CATEGORY_OPENABLE);addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)},SAVE_MERMAID)
     }
 
     private fun openDocument(){
@@ -947,7 +964,7 @@ class MainActivity : Activity() {
     private fun loadRecentDocument(uri:Uri,name:String){
         runCatching{contentResolver.takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION)}
         runCatching{contentResolver.openInputStream(uri)!!.bufferedReader().use{FlowDocument.fromJson(it.readText())}}
-            .onSuccess{history=HistoryManager(2000);doc=it;canvas.document=doc;canvas.selectedElementId=null;canvas.selectedConnectionId=null;documentName=displayDocumentName(name);documentUri=uri;documentDirty=false;touchRecent(uri,displayDocumentName(name));canvas.invalidate();updateUi()}
+            .onSuccess{history=HistoryManager(2000);doc=it;canvas.document=doc;canvas.selectedElementId=null;canvas.selectedConnectionId=null;documentName=displayDocumentName(name);documentUri=uri;documentFormat="JSON";documentDirty=false;touchRecent(uri,displayDocumentName(name));canvas.invalidate();updateUi()}
             .onFailure{toast("Could not open $name")}
     }
 
@@ -983,13 +1000,18 @@ class MainActivity : Activity() {
         if(resultCode!=RESULT_OK||data?.data==null){if(requestCode==SAVE_JSON_AS)pendingAfterSave=null;return}
         val uri=data.data!!
         when(requestCode){
-            SAVE_JSON->runCatching{contentResolver.openOutputStream(uri)!!.use{it.write(pendingText.toByteArray())};toast("Saved file")}.onFailure{toast("Could not save file")}
-            SAVE_MERMAID->runCatching{contentResolver.openOutputStream(uri)!!.use{it.write(pendingText.toByteArray())};toast("Saved Mermaid")}.onFailure{toast("Could not save Mermaid")}
+            SAVE_JSON->runCatching{contentResolver.openOutputStream(uri)!!.use{it.write(pendingText.toByteArray(Charsets.UTF_8))};toast("Saved file")}.onFailure{toast("Could not save file")}
+            SAVE_MERMAID->runCatching{
+                runCatching{contentResolver.takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)}
+                contentResolver.openOutputStream(uri,"wt")!!.use{it.write(pendingText.toByteArray(Charsets.UTF_8))}
+                documentUri=uri; documentName=displayDocumentName(queryDisplayName(uri) ?: "FlowForge document"); documentFormat="MERMAID"; documentDirty=false; touchRecent(uri,documentName); toast("Saved $documentName")
+                pendingAfterSave?.invoke()
+            }.onFailure{toast("Could not save Mermaid")}.also{pendingAfterSave=null}
 
             SAVE_JSON_AS->runCatching{
                 runCatching{contentResolver.takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)}
-                contentResolver.openOutputStream(uri,"wt")!!.use{it.write(doc.toJson().toByteArray())}
-                documentUri=uri; documentName=displayDocumentName(queryDisplayName(uri) ?: "FlowForge document"); documentDirty=false; touchRecent(uri,documentName); toast("Saved $documentName")
+                contentResolver.openOutputStream(uri,"wt")!!.use{it.write(doc.toJson().toByteArray(Charsets.UTF_8))}
+                documentUri=uri; documentName=displayDocumentName(queryDisplayName(uri) ?: "FlowForge document"); documentFormat="JSON"; documentDirty=false; touchRecent(uri,documentName); toast("Saved $documentName")
                 pendingAfterSave?.invoke()
             }.onFailure{toast("Could not save document")}.also{pendingAfterSave=null}
             OPEN_JSON->openJsonDocument(uri); IMPORT_JSON->importJson(uri); OPEN_MERMAID->importMermaid(uri); SAVE_PDF->exportPdf(uri,false); SAVE_PDF_DARK->exportPdf(uri,true); SAVE_IMAGE->exportPng(uri,false); SAVE_IMAGE_DARK->exportPng(uri,true)
@@ -1029,13 +1051,13 @@ class MainActivity : Activity() {
 
     private fun importJson(uri:Uri){
         val load={runCatching{contentResolver.openInputStream(uri)!!.bufferedReader().use{FlowDocument.fromJson(it.readText())}}}
-        fun go(){load().onSuccess{history=HistoryManager(2000);doc=it;canvas.document=doc;canvas.selectedElementId=null;canvas.selectedConnectionId=null;documentName=queryDisplayName(uri) ?: "Imported canvas";documentUri=null;documentDirty=true;canvas.invalidate();updateUi()}.onFailure{toast("Could not import FlowForge JSON")}}
+        fun go(){load().onSuccess{history=HistoryManager(2000);doc=it;canvas.document=doc;canvas.selectedElementId=null;canvas.selectedConnectionId=null;documentName=queryDisplayName(uri) ?: "Imported canvas";documentUri=null;documentFormat="NONE";documentDirty=true;canvas.invalidate();updateUi()}.onFailure{toast("Could not import FlowForge JSON")}}
         if(documentDirty)dialogBuilder().setTitle("Save changes?").setMessage("\\\"$documentName\\\" has unsaved changes. Save before importing?").setNegativeButton("Cancel",null).setNeutralButton("Don't Save"){_,_->go()}.setPositiveButton("Save"){_,_->saveCurrentThen { go() }}.show() else go()
     }
 
     private fun importMermaid(uri:Uri){
         val load={runCatching{contentResolver.openInputStream(uri)!!.bufferedReader().use{Mermaid.import(it.readText())}}}
-        fun go(){load().onSuccess{history=HistoryManager(2000);doc=it;canvas.document=doc;canvas.selectedElementId=null;canvas.selectedConnectionId=null;documentName=queryDisplayName(uri) ?: "Imported Mermaid";documentUri=null;documentDirty=true;canvas.invalidate();updateUi()}.onFailure{toast("Could not import Mermaid")}}
+        fun go(){load().onSuccess{history=HistoryManager(2000);doc=it;canvas.document=doc;canvas.selectedElementId=null;canvas.selectedConnectionId=null;documentName=queryDisplayName(uri) ?: "Imported Mermaid";documentUri=null;documentFormat="NONE";documentDirty=true;canvas.invalidate();updateUi()}.onFailure{toast("Could not import Mermaid")}}
         if(documentDirty)dialogBuilder().setTitle("Save changes?").setMessage("\\\"$documentName\\\" has unsaved changes. Save before importing?").setNegativeButton("Cancel",null).setNeutralButton("Don't Save"){_,_->go()}.setPositiveButton("Save"){_,_->saveCurrentThen { go() }}.show() else go()
     }
 
