@@ -45,4 +45,4 @@ FlowForge is built as the **release** variant by the included GitHub Actions wor
 
 This is intentionally a **test/development signing key**, not a production signing key. Its credentials use the conventional Android debug-key credentials (`androiddebugkey` / `android`), so the key is suitable for a personal/test distribution but must not be treated as a secret production signing key.
 
-The application ID remains `com.flowforge.app`, and releases must keep using the same signing key and a monotonically increasing `versionCode` so a newer APK can be installed over an older FlowForge APK. The current project version is **0.2.4** (`versionCode 24`).
+The application ID remains `com.flowforge.app`, and releases must keep using the same signing key and a monotonically increasing `versionCode` so a newer APK can be installed over an older FlowForge APK. The current project version is **0.2.6** (`versionCode 26`).
