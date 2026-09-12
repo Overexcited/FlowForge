@@ -238,8 +238,6 @@ class FlowCanvasView(context: Context) : View(context) {
     private fun drawConnectionTargets(c:Canvas,e:FlowElement){
         val r=RectF(e.x,e.y,e.x+e.width,e.y+e.height)
         val hs=10f
-        // Interaction points stay on the rectangular selection box.  The
-        // finished connector itself is anchored to the rendered shape outline.
         val points=listOf(
             ConnectionSide.TOP to explicitEndpoint(e,ConnectionSide.TOP),
             ConnectionSide.RIGHT to explicitEndpoint(e,ConnectionSide.RIGHT),
@@ -284,6 +282,17 @@ class FlowCanvasView(context: Context) : View(context) {
     }
     private fun preferredSide(a:FlowElement,b:FlowElement):ConnectionSide{val dx=b.x+b.width/2f-(a.x+a.width/2f);val dy=b.y+b.height/2f-(a.y+a.height/2f);return if(abs(dy)>=abs(dx)){if(dy>=0)ConnectionSide.BOTTOM else ConnectionSide.TOP}else{if(dx>=0)ConnectionSide.RIGHT else ConnectionSide.LEFT}}
     private fun distributedSide(preferred:ConnectionSide,index:Int):ConnectionSide{if(preferred==ConnectionSide.AUTO)return ConnectionSide.AUTO;val order=when(preferred){ConnectionSide.TOP->arrayOf(ConnectionSide.TOP,ConnectionSide.RIGHT,ConnectionSide.LEFT,ConnectionSide.BOTTOM);ConnectionSide.RIGHT->arrayOf(ConnectionSide.RIGHT,ConnectionSide.BOTTOM,ConnectionSide.TOP,ConnectionSide.LEFT);ConnectionSide.BOTTOM->arrayOf(ConnectionSide.BOTTOM,ConnectionSide.LEFT,ConnectionSide.RIGHT,ConnectionSide.TOP);ConnectionSide.LEFT->arrayOf(ConnectionSide.LEFT,ConnectionSide.TOP,ConnectionSide.BOTTOM,ConnectionSide.RIGHT);else->arrayOf(ConnectionSide.TOP)};return order[index%order.size]}
+    // Interaction/selection geometry deliberately uses the rectangular bounding box.
+    // Finished connectors use shapeBoundaryEndpoint() so their final endpoint lands on
+    // the actual rendered outline of irregular shapes (star, cloud, document, etc.).
+    private fun explicitEndpoint(e: FlowElement, side: ConnectionSide): PointF = when (side) {
+        ConnectionSide.TOP -> PointF(e.x + e.width / 2f, e.y)
+        ConnectionSide.RIGHT -> PointF(e.x + e.width, e.y + e.height / 2f)
+        ConnectionSide.BOTTOM -> PointF(e.x + e.width / 2f, e.y + e.height)
+        ConnectionSide.LEFT -> PointF(e.x, e.y + e.height / 2f)
+        ConnectionSide.AUTO -> PointF(e.x + e.width / 2f, e.y + e.height / 2f)
+    }
+
     private fun connectionEndpoints(a: FlowElement, b: FlowElement, index: Int, count: Int): Pair<PointF, PointF> {
         val pref = preferredSide(a, b)
         val sa = distributedSide(pref, index)
@@ -302,10 +311,10 @@ class FlowCanvasView(context: Context) : View(context) {
         }
         return point(a, sa, lane) to point(b, sb, lane)
     }
-    // Finished connection anchors are based on the actual rendered outline,
-    // while interaction points remain on the rectangular selection box. This
-    // matters for irregular shapes such as STAR, CLOUD and DOCUMENT whose
-    // visible outline does not reach every edge of their bounding rectangle.
+    // Connection anchors are based on the actual rendered outline, not the
+    // element's rectangular layout bounds.  This matters for irregular shapes
+    // such as CLOUD and DOCUMENT whose visible outline does not reach every
+    // edge of their bounding rectangle.
     private fun shapeBoundaryEndpoint(e:FlowElement,side:ConnectionSide,offset:Float):PointF{
         val r=RectF(e.x,e.y,e.x+e.width,e.y+e.height)
         if(e.customPoints.size<3 && (e.shape==ShapeType.RECTANGLE || e.shape==ShapeType.ROUNDED || e.shape==ShapeType.EXTRA_ROUNDED || e.shape==ShapeType.OVAL || e.shape==ShapeType.CIRCLE)) {
@@ -778,8 +787,6 @@ class FlowCanvasView(context: Context) : View(context) {
         for(e in document.elements.asReversed()){
             val r=RectF(e.x,e.y,e.x+e.width,e.y+e.height)
             for(side in sides){
-                // Connection-point hit testing follows the visible selection
-                // box, just like the connection-point UI.
                 val p=explicitEndpoint(e,side)
                 if(hypot(x-p.x,y-p.y)<=threshold)return e to side
             }
