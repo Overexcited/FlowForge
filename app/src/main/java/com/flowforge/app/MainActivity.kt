@@ -327,7 +327,7 @@ class MainActivity : Activity() {
 
     private fun addMenu(){
         val anchor=addButton ?: return
-        showStyledPopup("Add", listOf("New Block","Saved Block","New Canvas","From Template"), anchor, setOf(2)){choice->
+        showStyledPopup("Add", listOf("New Block","Saved Block","Blank Canvas","From Template"), anchor, setOf(2)){choice->
             when(choice){
                 0->addElement()
                 1->assetPicker()
