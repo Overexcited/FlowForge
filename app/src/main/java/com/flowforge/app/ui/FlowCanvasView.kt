@@ -239,10 +239,10 @@ class FlowCanvasView(context: Context) : View(context) {
         val r=RectF(e.x,e.y,e.x+e.width,e.y+e.height)
         val hs=10f
         val points=listOf(
-            ConnectionSide.TOP to explicitEndpoint(e,ConnectionSide.TOP),
-            ConnectionSide.RIGHT to explicitEndpoint(e,ConnectionSide.RIGHT),
-            ConnectionSide.BOTTOM to explicitEndpoint(e,ConnectionSide.BOTTOM),
-            ConnectionSide.LEFT to explicitEndpoint(e,ConnectionSide.LEFT)
+            ConnectionSide.TOP to shapeBoundaryEndpoint(e,ConnectionSide.TOP,0f),
+            ConnectionSide.RIGHT to shapeBoundaryEndpoint(e,ConnectionSide.RIGHT,0f),
+            ConnectionSide.BOTTOM to shapeBoundaryEndpoint(e,ConnectionSide.BOTTOM,0f),
+            ConnectionSide.LEFT to shapeBoundaryEndpoint(e,ConnectionSide.LEFT,0f)
         )
         points.forEach{(side,p)->
             val active=connectionStartId==e.id && connectionStartSide==side
@@ -282,17 +282,6 @@ class FlowCanvasView(context: Context) : View(context) {
     }
     private fun preferredSide(a:FlowElement,b:FlowElement):ConnectionSide{val dx=b.x+b.width/2f-(a.x+a.width/2f);val dy=b.y+b.height/2f-(a.y+a.height/2f);return if(abs(dy)>=abs(dx)){if(dy>=0)ConnectionSide.BOTTOM else ConnectionSide.TOP}else{if(dx>=0)ConnectionSide.RIGHT else ConnectionSide.LEFT}}
     private fun distributedSide(preferred:ConnectionSide,index:Int):ConnectionSide{if(preferred==ConnectionSide.AUTO)return ConnectionSide.AUTO;val order=when(preferred){ConnectionSide.TOP->arrayOf(ConnectionSide.TOP,ConnectionSide.RIGHT,ConnectionSide.LEFT,ConnectionSide.BOTTOM);ConnectionSide.RIGHT->arrayOf(ConnectionSide.RIGHT,ConnectionSide.BOTTOM,ConnectionSide.TOP,ConnectionSide.LEFT);ConnectionSide.BOTTOM->arrayOf(ConnectionSide.BOTTOM,ConnectionSide.LEFT,ConnectionSide.RIGHT,ConnectionSide.TOP);ConnectionSide.LEFT->arrayOf(ConnectionSide.LEFT,ConnectionSide.TOP,ConnectionSide.BOTTOM,ConnectionSide.RIGHT);else->arrayOf(ConnectionSide.TOP)};return order[index%order.size]}
-    // Interaction/selection geometry deliberately uses the rectangular bounding box.
-    // Finished connectors use shapeBoundaryEndpoint() so their final endpoint lands on
-    // the actual rendered outline of irregular shapes (star, cloud, document, etc.).
-    private fun explicitEndpoint(e: FlowElement, side: ConnectionSide): PointF = when (side) {
-        ConnectionSide.TOP -> PointF(e.x + e.width / 2f, e.y)
-        ConnectionSide.RIGHT -> PointF(e.x + e.width, e.y + e.height / 2f)
-        ConnectionSide.BOTTOM -> PointF(e.x + e.width / 2f, e.y + e.height)
-        ConnectionSide.LEFT -> PointF(e.x, e.y + e.height / 2f)
-        ConnectionSide.AUTO -> PointF(e.x + e.width / 2f, e.y + e.height / 2f)
-    }
-
     private fun connectionEndpoints(a: FlowElement, b: FlowElement, index: Int, count: Int): Pair<PointF, PointF> {
         val pref = preferredSide(a, b)
         val sa = distributedSide(pref, index)
@@ -420,101 +409,122 @@ class FlowCanvasView(context: Context) : View(context) {
         fromSide:ConnectionSide,
         toSide:ConnectionSide,
     ):Path {
-        // start/end are the actual automatically distributed attachment points
-        // on the selected faces.
         val sourceOut=offsetFromSide(start,fromSide,64f)
         val targetOut=offsetFromSide(end,toSide,64f)
-        val obstacles=obstacleRects(a.id,b.id)+listOf(
-            expandedElementRect(a,48f),
-            expandedElementRect(b,48f)
-        )
-        // Recalculate the route from the CURRENT block geometry every time the
-        // canvas is drawn.  Stored routePoints are deliberately not used here: a
-        // moved block must never leave an old elbow pinned to the canvas.
+        val obstacles=obstacleData(a.id,b.id)
         val middle=visibilityRoute(sourceOut,targetOut,obstacles,0)
         val raw=mutableListOf<PointF>()
-        raw+=start
-        raw+=sourceOut
-        raw.addAll(middle.drop(1).dropLast(1))
-        raw+=targetOut
-        raw+=end
+        raw+=start;raw+=sourceOut;raw.addAll(middle.drop(1).dropLast(1));raw+=targetOut;raw+=end
         val cleaned=mutableListOf<PointF>()
-        raw.forEach { if(cleaned.isEmpty() || hypot(it.x-cleaned.last().x,it.y-cleaned.last().y)>1f) cleaned+=it }
-        return buildSmoothRoutePath(cleaned)
+        raw.forEach{if(cleaned.isEmpty()||hypot(it.x-cleaned.last().x,it.y-cleaned.last().y)>1f)cleaned+=it}
+        return buildSafeSmoothRoutePath(cleaned,obstacles)
     }
 
-    private fun buildSmoothRoutePath(points:List<PointF>):Path {
-        val p=Path()
-        if(points.isEmpty()) return p
-        p.moveTo(points[0].x,points[0].y)
-        if(points.size==2){
-            p.lineTo(points[1].x,points[1].y)
-            return p
+    private fun pathClear(path:Path,obs:List<RouteObstacle>):Boolean{
+        if(obs.isEmpty())return true
+        val m=PathMeasure(path,false);if(m.length<=0f)return true
+        val pos=FloatArray(2);var last:PointF?=null;var d=0f
+        val step=maxOf(4f,min(10f,m.length/32f))
+        while(d<=m.length){
+            if(!m.getPosTan(d,pos,null))return false
+            val cur=PointF(pos[0],pos[1])
+            last?.let{if(!segmentClear(it,cur,obs))return false}
+            last=cur;d+=step
         }
-        // Keep the automatically selected route, but turn every corner into a
-        // generous quadratic bend.  This remains one continuous Path rather than
-        // a collection of separately drawn line segments.
-        val radius=34f
-        for(i in 1 until points.lastIndex){
-            val prev=points[i-1]; val cur=points[i]; val next=points[i+1]
-            val inLen=hypot(cur.x-prev.x,cur.y-prev.y)
-            val outLen=hypot(next.x-cur.x,next.y-cur.y)
-            if(inLen<1f || outLen<1f){ p.lineTo(cur.x,cur.y); continue }
-            val r=min(radius,min(inLen,outLen)*.42f)
-            val before=PointF(cur.x+(prev.x-cur.x)*r/inLen,cur.y+(prev.y-cur.y)*r/inLen)
-            val after=PointF(cur.x+(next.x-cur.x)*r/outLen,cur.y+(next.y-cur.y)*r/outLen)
-            p.lineTo(before.x,before.y)
-            p.quadTo(cur.x,cur.y,after.x,after.y)
+        return true
+    }
+
+    private fun buildSafeSmoothRoutePath(points:List<PointF>,obs:List<RouteObstacle>):Path{
+        if(points.isEmpty())return Path()
+        fun rounded(radius:Float):Path{
+            val p=Path();p.moveTo(points[0].x,points[0].y)
+            if(points.size==2){p.lineTo(points[1].x,points[1].y);return p}
+            for(i in 1 until points.lastIndex){
+                val prev=points[i-1];val cur=points[i];val next=points[i+1]
+                val inLen=hypot(cur.x-prev.x,cur.y-prev.y);val outLen=hypot(next.x-cur.x,next.y-cur.y)
+                if(inLen<1f||outLen<1f){p.lineTo(cur.x,cur.y);continue}
+                val r=min(radius,min(inLen,outLen)*.38f)
+                val before=PointF(cur.x+(prev.x-cur.x)*r/inLen,cur.y+(prev.y-cur.y)*r/inLen)
+                val after=PointF(cur.x+(next.x-cur.x)*r/outLen,cur.y+(next.y-cur.y)*r/outLen)
+                p.lineTo(before.x,before.y);p.quadTo(cur.x,cur.y,after.x,after.y)
+            }
+            p.lineTo(points.last().x,points.last().y);return p
         }
-        p.lineTo(points.last().x,points.last().y)
-        return p
+        val radii=listOf(30f,18f,8f,0f)
+        for(r in radii){val candidate=rounded(r);if(pathClear(candidate,obs))return candidate}
+        // If smoothing would enter an obstacle, preserve the exact visibility polyline.
+        val fallback=Path();fallback.moveTo(points[0].x,points[0].y);for(i in 1 until points.size)fallback.lineTo(points[i].x,points[i].y);return fallback
     }
 
-    private fun buildRoutedPath(points:List<PointF>):Path{val p=Path();if(points.isEmpty())return p;if(points.size==1){p.moveTo(points[0].x,points[0].y);return p};val radius=28f;p.moveTo(points[0].x,points[0].y);for(i in 1 until points.lastIndex+1){val prev=points[i-1];val cur=points[i];val next=if(i<points.lastIndex)points[i+1]else null;if(next==null){p.lineTo(cur.x,cur.y);break};val inLen=hypot(cur.x-prev.x,cur.y-prev.y);val outLen=hypot(next.x-cur.x,next.y-cur.y);if(inLen<1f||outLen<1f){p.lineTo(cur.x,cur.y);continue};val r=min(radius,min(inLen,outLen)*.38f);val before=PointF(cur.x+(prev.x-cur.x)*r/inLen,cur.y+(prev.y-cur.y)*r/inLen);val after=PointF(cur.x+(next.x-cur.x)*r/outLen,cur.y+(next.y-cur.y)*r/outLen);p.lineTo(before.x,before.y);p.quadTo(cur.x,cur.y,after.x,after.y)};return p}
-    private fun pathMidpoint(path:Path):PointF{val m=PathMeasure(path,false);if(m.length<=0f)return PointF();val pos=FloatArray(2);m.getPosTan(m.length/2f,pos,null);return PointF(pos[0],pos[1])}
-    private fun drawConnectionArrows(c:Canvas,path:Path,type:ArrowType){val m=PathMeasure(path,false);if(m.length<=1f)return;val pos=FloatArray(2);val tan=FloatArray(2);fun sample(d:Float):Pair<PointF,PointF>{m.getPosTan(d.coerceIn(0f,m.length),pos,tan);return PointF(pos[0],pos[1]) to PointF(tan[0],tan[1])};val end=sample(m.length);val start=sample(min(20f,m.length));when(type){ArrowType.END->drawArrow(c,end.first.x-end.second.x*8f,end.first.y-end.second.y*8f,end.first.x,end.first.y,ArrowType.END);ArrowType.BOTH->{drawArrow(c,end.first.x-end.second.x*8f,end.first.y-end.second.y*8f,end.first.x,end.first.y,ArrowType.END);drawArrow(c,start.first.x+start.second.x*8f,start.first.y+start.second.y*8f,start.first.x,start.first.y,ArrowType.END)};ArrowType.CIRCLE->{paint.style=Paint.Style.STROKE;paint.strokeWidth=3f;c.drawCircle(end.first.x,end.first.y,7f,paint)};ArrowType.DIAMOND->drawArrow(c,end.first.x-end.second.x*8f,end.first.y-end.second.y*8f,end.first.x,end.first.y,ArrowType.DIAMOND);else->Unit}}
-    private fun drawArrow(c:Canvas,x1:Float,y1:Float,x2:Float,y2:Float,type:ArrowType){val ang=atan2(y2-y1,x2-x1);val len=20f;val p=Path();if(type==ArrowType.DIAMOND){p.moveTo(x2,y2);p.lineTo(x2-len*.8f*cos(ang-.5f),y2-len*.8f*sin(ang-.5f));p.lineTo(x2-len*cos(ang),y2-len*sin(ang));p.lineTo(x2-len*.8f*cos(ang+.5f),y2-len*.8f*sin(ang+.5f));p.close()}else{p.moveTo(x2,y2);p.lineTo(x2-len*cos(ang-.5f),y2-len*sin(ang-.5f));p.lineTo(x2-len*cos(ang+.5f),y2-len*sin(ang+.5f));p.close()};paint.style=Paint.Style.FILL;paint.color=if(type==ArrowType.DIAMOND)paint.color else paint.color;c.drawPath(p,paint)}
-    private fun drawRepeatedArrows(c:Canvas,path:Path){val m=PathMeasure(path,false);val pos=FloatArray(2);val tan=FloatArray(2);var d=55f;while(d<m.length-12f){if(m.getPosTan(d,pos,tan))drawArrow(c,pos[0]-tan[0]*8f,pos[1]-tan[1]*8f,pos[0],pos[1],ArrowType.END);d+=70f}}
+    private data class RouteObstacle(
+        val id:String,
+        val bounds:RectF,
+        val outline:List<PointF>,
+        val clearance:Float
+    )
 
-    private fun simplifyGesture(points:List<PointF>):List<PointF>{
-        if(points.size<2)return points.toList()
-        val clean=mutableListOf<PointF>();var last=points.first();clean+=last
-        for(i in 1 until points.lastIndex){val p=points[i];if(hypot(p.x-last.x,p.y-last.y)>=14f){clean+=p;last=p}}
-        clean+=points.last();if(clean.size<3)return clean
-        val turns=mutableListOf<PointF>();turns+=clean.first();var prevDir=direction(clean[0],clean[1]);var runStart=clean[0];var runDist=0f
-        for(i in 1 until clean.lastIndex){val a=clean[i];val b=clean[i+1];val d=direction(a,b);runDist+=hypot(b.x-a.x,b.y-a.y);if(d!=prevDir&&runDist>=32f){turns+=a;prevDir=d;runDist=0f;runStart=a}}
-        turns+=clean.last()
-        return turns.take(6)
-    }
-    private fun direction(a:PointF,b:PointF):Int{val dx=b.x-a.x;val dy=b.y-a.y;return if(abs(dx)>=abs(dy))if(dx>=0)0 else 1 else if(dy>=0)2 else 3}
-    private fun obstacleRects(a:String,b:String):List<RectF> =
+    private fun obstacleData(a:String,b:String):List<RouteObstacle> =
         document.elements
             .filter { it.id != a && it.id != b }
-            .map { RectF(it.x - 40f, it.y - 40f, it.x + it.width + 40f, it.y + it.height + 40f) }
+            .map { e ->
+                val r=RectF(e.x,e.y,e.x+e.width,e.y+e.height)
+                val path=if(e.customPoints.size>=3)
+                    smoothedClosedPath(e.customPoints.map{PointF(r.left+it.x*r.width(),r.top+it.y*r.height())},1)
+                else shapePath(e,r)
+                val outline=samplePath(path,32)
+                val clearance=when(e.shape){
+                    ShapeType.STAR,ShapeType.CLOUD,ShapeType.DOCUMENT,ShapeType.TRIANGLE,
+                    ShapeType.TRAPEZOID_TOP_SHORT,ShapeType.TRAPEZOID_BOTTOM_SHORT,
+                    ShapeType.DIAMOND,ShapeType.PARALLELOGRAM,ShapeType.HEXAGON -> 18f
+                    else -> 20f
+                }
+                RouteObstacle(e.id,RectF(r.left-clearance,r.top-clearance,r.right+clearance,r.bottom+clearance),outline,clearance)
+            }
 
-    private fun expandedElementRect(e:FlowElement, margin:Float = 40f):RectF =
-        RectF(e.x - margin, e.y - margin, e.x + e.width + margin, e.y + e.height + margin)
+    private fun samplePath(path:Path,count:Int):List<PointF>{
+        val out=mutableListOf<PointF>();val m=PathMeasure(path,true);if(m.length<=0f)return out
+        val pos=FloatArray(2);for(i in 0 until count){m.getPosTan(m.length*i.toFloat()/count,pos,null);out+=PointF(pos[0],pos[1])};return out
+    }
 
-    private fun segmentClear(a:PointF,b:PointF,obs:List<RectF>):Boolean {
-        fun pointIn(r:RectF,p:PointF)=p.x>r.left && p.x<r.right && p.y>r.top && p.y<r.bottom
-        fun cross(a:PointF,b:PointF,c:PointF)=
-            (b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x)
-        fun onSegment(a:PointF,b:PointF,p:PointF)=
-            abs(cross(a,b,p))<0.01f &&
-            p.x>=min(a.x,b.x)-0.01f && p.x<=max(a.x,b.x)+0.01f &&
-            p.y>=min(a.y,b.y)-0.01f && p.y<=max(a.y,b.y)+0.01f
-        fun intersects(a:PointF,b:PointF,c:PointF,d:PointF):Boolean {
-            val ab1=cross(a,b,c);val ab2=cross(a,b,d)
-            val cd1=cross(c,d,a);val cd2=cross(c,d,b)
-            if(((ab1>0f&&ab2<0f)||(ab1<0f&&ab2>0f)) &&
-               ((cd1>0f&&cd2<0f)||(cd1<0f&&cd2>0f))) return true
-            return onSegment(a,b,c)||onSegment(a,b,d)||onSegment(c,d,a)||onSegment(c,d,b)
-        }
-        for(r in obs){
-            if(pointIn(r,a)||pointIn(r,b)) return false
-            val tl=PointF(r.left,r.top);val tr=PointF(r.right,r.top)
-            val br=PointF(r.right,r.bottom);val bl=PointF(r.left,r.bottom)
-            if(intersects(a,b,tl,tr)||intersects(a,b,tr,br)||intersects(a,b,br,bl)||intersects(a,b,bl,tl)) return false
+    private fun pointInPolygon(p:PointF,poly:List<PointF>):Boolean{
+        if(poly.size<3)return false
+        var inside=false;var j=poly.lastIndex
+        for(i in poly.indices){val a=poly[i];val b=poly[j];if((a.y>p.y)!=(b.y>p.y)&&p.x<(b.x-a.x)*(p.y-a.y)/(b.y-a.y)+a.x)inside=!inside;j=i}
+        return inside
+    }
+
+    private fun pointSegmentDistance(p:PointF,a:PointF,b:PointF):Float{
+        val dx=b.x-a.x;val dy=b.y-a.y
+        if(abs(dx)<0.001f&&abs(dy)<0.001f)return hypot(p.x-a.x,p.y-a.y).toFloat()
+        val t=((p.x-a.x)*dx+(p.y-a.y)*dy)/(dx*dx+dy*dy)
+        val u=t.coerceIn(0f,1f);return hypot(p.x-(a.x+u*dx),p.y-(a.y+u*dy)).toFloat()
+    }
+
+    private fun segmentDistance(a:PointF,b:PointF,c:PointF,d:PointF):Float{
+        if(segmentsIntersect(a,b,c,d))return 0f
+        return minOf(pointSegmentDistance(a,c,d),pointSegmentDistance(b,c,d),pointSegmentDistance(c,a,b),pointSegmentDistance(d,a,b))
+    }
+
+    private fun segmentsIntersect(a:PointF,b:PointF,c:PointF,d:PointF):Boolean{
+        fun cross(a:PointF,b:PointF,c:PointF)=(b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x)
+        fun on(a:PointF,b:PointF,p:PointF)=abs(cross(a,b,p))<0.01f&&p.x>=min(a.x,b.x)-0.01f&&p.x<=max(a.x,b.x)+0.01f&&p.y>=min(a.y,b.y)-0.01f&&p.y<=max(a.y,b.y)+0.01f
+        val ab1=cross(a,b,c);val ab2=cross(a,b,d);val cd1=cross(c,d,a);val cd2=cross(c,d,b)
+        if(((ab1>0f&&ab2<0f)||(ab1<0f&&ab2>0f))&&((cd1>0f&&cd2<0f)||(cd1<0f&&cd2>0f)))return true
+        return on(a,b,c)||on(a,b,d)||on(c,d,a)||on(c,d,b)
+    }
+
+    private fun segmentClear(a:PointF,b:PointF,obs:List<RouteObstacle>):Boolean{
+        for(o in obs){
+            val r=o.bounds
+            val minX=min(a.x,b.x);val maxX=max(a.x,b.x);val minY=min(a.y,b.y);val maxY=max(a.y,b.y)
+            if(maxX<r.left||minX>r.right||maxY<r.top||minY>r.bottom)continue
+            if(pointInPolygon(a,o.outline)||pointInPolygon(b,o.outline))return false
+            if(o.outline.size>=2){
+                for(i in o.outline.indices){
+                    val q=o.outline[(i+1)%o.outline.size]
+                    if(segmentDistance(a,b,o.outline[i],q)<o.clearance)return false
+                }
+            }else if(RectF.intersects(r,RectF(minX,minY,maxX,maxY)))return false
         }
         return true
     }
@@ -524,28 +534,11 @@ class FlowCanvasView(context: Context) : View(context) {
         val end=shapeBoundaryEndpoint(b,toSide,0f)
         val sourceOut=offsetFromSide(start,fromSide,64f)
         val targetOut=offsetFromSide(end,toSide,64f)
-
-        // The finger path is intentionally used only to choose the two faces.
-        // Once the finger is released, the connector is regenerated cleanly so
-        // accidental wiggles never become ugly permanent routing waypoints.
-        val obstacles=obstacleRects(a.id,b.id)+listOf(
-            expandedElementRect(a,48f),
-            expandedElementRect(b,48f)
-        )
-
+        val obstacles=obstacleData(a.id,b.id)
         val middle=visibilityRoute(sourceOut,targetOut,obstacles,gestureBias(gesture))
-        val raw=mutableListOf<PointF>()
-        raw+=start
-        raw+=sourceOut
-        raw.addAll(middle.drop(1).dropLast(1))
-        raw+=targetOut
-        raw+=end
-
-        val cleaned=mutableListOf<PointF>()
-        for(pt in raw){
-            if(cleaned.isEmpty() || hypot(pt.x-cleaned.last().x,pt.y-cleaned.last().y)>1f) cleaned+=pt
-        }
-        return if(cleaned.size>=2) cleaned else listOf(start,end)
+        val raw=mutableListOf<PointF>();raw+=start;raw+=sourceOut;raw.addAll(middle.drop(1).dropLast(1));raw+=targetOut;raw+=end
+        val cleaned=mutableListOf<PointF>();for(pt in raw){if(cleaned.isEmpty()||hypot(pt.x-cleaned.last().x,pt.y-cleaned.last().y)>1f)cleaned+=pt}
+        return if(cleaned.size>=2)cleaned else listOf(start,end)
     }
 
     private fun offsetFromSide(p:PointF,side:ConnectionSide,d:Float):PointF = when(side){
@@ -556,100 +549,58 @@ class FlowCanvasView(context: Context) : View(context) {
         else->p
     }
 
-    /**
-     * Finds a short, obstacle-free polyline using obstacle corners as visibility
-     * nodes. Unlike a square grid, this does not manufacture dozens of tiny
-     * horizontal/vertical steps, so the final smoothed connector stays elegant.
-     */
-    private fun visibilityRoute(start:PointF,end:PointF,obs:List<RectF>,bias:Int=0):List<PointF>{
-        if(segmentClear(start,end,obs)) return listOf(start,end)
-
-        val nodes=mutableListOf<PointF>()
-        nodes+=start
-        nodes+=end
-        obs.forEach { r ->
-            val gap=10f
-            nodes+=PointF(r.left-gap,r.top-gap)
-            nodes+=PointF(r.right+gap,r.top-gap)
-            nodes+=PointF(r.right+gap,r.bottom+gap)
-            nodes+=PointF(r.left-gap,r.bottom+gap)
-        }
-
-        val n=nodes.size
-        val dist=FloatArray(n){Float.POSITIVE_INFINITY}
-        val prev=IntArray(n){-1}
-        val used=BooleanArray(n)
-        dist[0]=0f
-
-        repeat(n){
-            var u=-1
-            var best=Float.POSITIVE_INFINITY
-            for(i in 0 until n){
-                if(!used[i] && dist[i]<best){best=dist[i];u=i}
+    private fun visibilityRoute(start:PointF,end:PointF,obs:List<RouteObstacle>,bias:Int=0):List<PointF>{
+        if(segmentClear(start,end,obs))return listOf(start,end)
+        val nodes=mutableListOf<PointF>();nodes+=start;nodes+=end
+        obs.forEach{o->
+            val r=o.bounds;val gap=6f
+            nodes+=PointF(r.left-gap,r.top-gap);nodes+=PointF(r.right+gap,r.top-gap);nodes+=PointF(r.right+gap,r.bottom+gap);nodes+=PointF(r.left-gap,r.bottom+gap)
+            if(o.outline.size>=4){
+                val stride=max(1,o.outline.size/8)
+                for(i in o.outline.indices step stride){
+                    val q=o.outline[i];val cx=(r.left+r.right)/2f;val cy=(r.top+r.bottom)/2f
+                    val dx=q.x-cx;val dy=q.y-cy;val len=hypot(dx,dy).coerceAtLeast(1f)
+                    nodes+=PointF(q.x+dx/len*(o.clearance+gap),q.y+dy/len*(o.clearance+gap))
+                }
             }
-            if(u<0)return@repeat
-            used[u]=true
+        }
+        val n=nodes.size;val dist=FloatArray(n){Float.POSITIVE_INFINITY};val prev=IntArray(n){-1};val used=BooleanArray(n);dist[0]=0f
+        repeat(n){
+            var u=-1;var best=Float.POSITIVE_INFINITY
+            for(i in 0 until n)if(!used[i]&&dist[i]<best){best=dist[i];u=i}
+            if(u<0)return@repeat;used[u]=true
             for(v in 0 until n){
-                if(used[v] || v==u)continue
-                if(!segmentClear(nodes[u],nodes[v],obs))continue
-                val length=hypot(nodes[v].x-nodes[u].x,nodes[v].y-nodes[u].y)
-                val bendPenalty=if(prev[u]>=0 && !sameDirection(nodes[prev[u]],nodes[u],nodes[v])) 18f else 0f
-                val sidePenalty=if(bias!=0 && prev[u]>=0 && abs(nodes[v].x-nodes[u].x)>abs(nodes[v].y-nodes[u].y) && sign(nodes[v].x-nodes[u].x).toInt()!=bias) 90f else 0f
+                if(used[v]||v==u||!segmentClear(nodes[u],nodes[v],obs))continue
+                val length=hypot(nodes[v].x-nodes[u].x,nodes[v].y-nodes[u].y).toFloat()
+                val bendPenalty=if(prev[u]>=0&&!sameDirection(nodes[prev[u]],nodes[u],nodes[v]))28f else 0f
+                val sidePenalty=if(bias!=0&&prev[u]>=0&&abs(nodes[v].x-nodes[u].x)>abs(nodes[v].y-nodes[u].y)&&sign(nodes[v].x-nodes[u].x).toInt()!=bias)70f else 0f
                 val candidate=dist[u]+length+bendPenalty+sidePenalty
                 if(candidate<dist[v]){dist[v]=candidate;prev[v]=u}
             }
         }
-
-        if(!dist[1].isFinite()) return listOf(start,end)
-        val result=mutableListOf<PointF>()
-        var at=1
-        while(at>=0){
-            result+=nodes[at]
-            if(at==0)break
-            at=prev[at]
-            if(at<0)return listOf(start,end)
-        }
-        result.reverse()
-        return simplifyRoute(result,obs)
+        if(!dist[1].isFinite())return listOf(start,end)
+        val result=mutableListOf<PointF>();var at=1
+        while(at>=0){result+=nodes[at];if(at==0)break;at=prev[at];if(at<0)return listOf(start,end)}
+        result.reverse();return simplifyRoute(result,obs)
     }
 
     private fun gestureBias(points:List<PointF>):Int{
         if(points.size<2)return 0
-        var left=0f
-        var right=0f
-        for(i in 1 until points.size){
-            val dx=points[i].x-points[i-1].x
-            if(abs(dx)>=abs(points[i].y-points[i-1].y)){
-                if(dx<0)left+=-dx else right+=dx
-            }
-        }
-        return when{
-            left>right*1.35f->-1
-            right>left*1.35f->1
-            else->0
-        }
+        var left=0f;var right=0f
+        for(i in 1 until points.size){val dx=points[i].x-points[i-1].x;if(abs(dx)>=abs(points[i].y-points[i-1].y)){if(dx<0)left+=-dx else right+=dx}}
+        return when{left>right*1.35f->-1;right>left*1.35f->1;else->0}
     }
 
     private fun sameDirection(a:PointF,b:PointF,c:PointF):Boolean{
-        val abx=b.x-a.x;val aby=b.y-a.y
-        val bcx=c.x-b.x;val bcy=c.y-b.y
-        return (abs(abx)>=abs(aby))==(abs(bcx)>=abs(bcy)) &&
-               (if(abs(abx)>=abs(aby)) sign(abx)==sign(bcx) else sign(aby)==sign(bcy))
+        val abx=b.x-a.x;val aby=b.y-a.y;val bcx=c.x-b.x;val bcy=c.y-b.y
+        return (abs(abx)>=abs(aby))==(abs(bcx)>=abs(bcy))&&(if(abs(abx)>=abs(aby))sign(abx)==sign(bcx)else sign(aby)==sign(bcy))
     }
 
-    private fun simplifyRoute(points:List<PointF>, obs:List<RectF>):List<PointF>{
+    private fun simplifyRoute(points:List<PointF>,obs:List<RouteObstacle>):List<PointF>{
         if(points.size<=2)return points
-        val out=points.toMutableList()
-        var changed=true
-        while(changed && out.size>2){
-            changed=false
-            var i=1
-            while(i<out.lastIndex){
-                if(segmentClear(out[i-1],out[i+1],obs)){
-                    out.removeAt(i)
-                    changed=true
-                }else i++
-            }
+        val out=points.toMutableList();var changed=true
+        while(changed&&out.size>2){changed=false;var i=1
+            while(i<out.lastIndex){if(segmentClear(out[i-1],out[i+1],obs)){out.removeAt(i);changed=true}else i++}
         }
         return out
     }
@@ -787,7 +738,7 @@ class FlowCanvasView(context: Context) : View(context) {
         for(e in document.elements.asReversed()){
             val r=RectF(e.x,e.y,e.x+e.width,e.y+e.height)
             for(side in sides){
-                val p=explicitEndpoint(e,side)
+                val p=shapeBoundaryEndpoint(e,side,0f)
                 if(hypot(x-p.x,y-p.y)<=threshold)return e to side
             }
         }
