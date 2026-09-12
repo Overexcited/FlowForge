@@ -151,10 +151,24 @@ class MainActivity : Activity() {
             setBackgroundColor(if (uiDark) 0xff020617.toInt() else 0xff0f172a.toInt())
         }
         top.addView(iconButton("☰", "Menu") { mainMenu() }.also { menuButton = it })
-        top.addView(TextView(this).apply {
+        val titleGroup = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        titleGroup.addView(TextView(this).apply {
             text = "FlowForge"; textSize = 18f; setTextColor(Color.WHITE); gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(6), 0, dp(6), 0)
-        }, LinearLayout.LayoutParams(0, dp(52), 1f))
+            setPadding(dp(6), 0, dp(2), 0)
+        }, LinearLayout.LayoutParams(WRAP_CONTENT, dp(52)))
+        titleGroup.addView(ImageView(this).apply {
+            setImageResource(com.flowforge.app.R.drawable.flowforge_launcher_icon)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            contentDescription = "FlowForge icon"
+            setPadding(dp(2), dp(2), dp(2), dp(2))
+        }, LinearLayout.LayoutParams(dp(32), dp(52)).apply {
+            leftMargin = dp(2)
+            rightMargin = dp(6)
+        })
+        top.addView(titleGroup, LinearLayout.LayoutParams(0, dp(52), 1f))
         top.addView(iconButton("↶", "Undo") { undo() }.also { undoButton = it })
         top.addView(iconButton("↷", "Redo") { redo() }.also { redoButton = it })
         top.addView(iconButton("＋", "Add") { addMenu() }.also { addButton = it })
@@ -257,7 +271,7 @@ class MainActivity : Activity() {
                 typeface = android.graphics.Typeface.DEFAULT
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding(dp(12), 0, dp(12), 0)
-                text = "${if(documentUri != null) documentName else "Untitled"}${if(documentDirty)" • Unsaved" else ""}  •  ${doc.elements.size} blocks  •  ${doc.connections.size} connections"
+                text = "${if(documentUri != null) displayDocumentName(documentName) else "Untitled"}${if(documentDirty)" • Unsaved" else ""}  •  ${doc.elements.size} blocks  •  ${doc.connections.size} connections"
             }
         }
         val bar=contextBar ?: return
@@ -311,20 +325,23 @@ class MainActivity : Activity() {
 
     private fun mainMenu(){
         val anchor=menuButton ?: return
-        showStyledPopup("FlowForge", listOf("Save...","Open","Recents","Fit diagram to screen","Settings"), anchor, emptySet()){which->
+        showStyledPopup("FlowForge", listOf("Recents","Save","Save As…","Open…","Fit diagram","Reset zoom / position","Import","Settings"), anchor, emptySet()){which->
             when(which){
-                0->saveAs()
-                1->openDocument()
-                2->recents()
-                3->fitDiagramToScreen()
-                4->settings()
+                0->recents()
+                1->saveCurrent()
+                2->saveAs()
+                3->openDocument()
+                4->canvas.fitContent()
+                5->canvas.fitContent()
+                6->importMenu()
+                7->settings()
             }
         }
     }
 
     private fun addMenu(){
         val anchor=addButton ?: return
-        showStyledPopup("Add", listOf("New Block","Saved Block","Blank Canvas","From Template"), anchor, setOf(2)){choice->
+        showStyledPopup("Add", listOf("New Block","Saved Block","New Canvas","From Template"), anchor, setOf(2)){choice->
             when(choice){
                 0->addElement()
                 1->assetPicker()
@@ -888,13 +905,6 @@ class MainActivity : Activity() {
         }.getOrElse{toast("Could not save $documentName");false}
     }
 
-    private fun newFlowForgeFileName(extension:String):String{
-        val date=SimpleDateFormat("dd-MM-yyyy",Locale.US).format(Date())
-        val number=(100..999).random()
-        val ext=extension.removePrefix(".")
-        return "FlowForge_${date}_${number.toString().padStart(3,'0')}.$ext"
-    }
-
     private fun newUntitledFileName(extension:String):String{
         val stamp=SimpleDateFormat("yyMMdd_HHmmss",Locale.US).format(Date())
         return "Untitled_$stamp.$extension"
@@ -918,7 +928,7 @@ class MainActivity : Activity() {
 
     private fun startSaveAsJson(){
         startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply{
-            type="application/json"; putExtra(Intent.EXTRA_TITLE,if(documentName=="Untitled")newFlowForgeFileName("json") else documentName)
+            type="application/json"; putExtra(Intent.EXTRA_TITLE,if(documentName=="Untitled")newUntitledFileName("flowforge.json") else documentName)
             addCategory(Intent.CATEGORY_OPENABLE)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
         },SAVE_JSON_AS)
@@ -926,7 +936,7 @@ class MainActivity : Activity() {
 
     private fun startSaveAsMermaid(){
         pendingText=Mermaid.export(doc)
-        startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply{type="text/plain";putExtra(Intent.EXTRA_TITLE,if(documentName=="Untitled")newFlowForgeFileName("mmd") else documentName);addCategory(Intent.CATEGORY_OPENABLE);addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)},SAVE_MERMAID)
+        startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply{type="text/plain";putExtra(Intent.EXTRA_TITLE,if(documentName=="Untitled")newUntitledFileName("mmd") else documentName);addCategory(Intent.CATEGORY_OPENABLE);addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)},SAVE_MERMAID)
     }
 
     private fun openDocument(){
@@ -940,8 +950,7 @@ class MainActivity : Activity() {
 
     private fun openDocumentPicker(){
         startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply{
-            type="*/*"
-            putExtra(Intent.EXTRA_MIME_TYPES,arrayOf("application/json","text/plain","text/markdown"))
+            type="application/json"
             addCategory(Intent.CATEGORY_OPENABLE)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
         },OPEN_JSON)
@@ -1017,37 +1026,10 @@ class MainActivity : Activity() {
                 documentUri=uri; documentName=displayDocumentName(queryDisplayName(uri) ?: "FlowForge document"); documentFormat="JSON"; documentDirty=false; touchRecent(uri,documentName); toast("Saved $documentName")
                 pendingAfterSave?.invoke()
             }.onFailure{toast("Could not save document")}.also{pendingAfterSave=null}
-            OPEN_JSON->openDocumentFile(uri); IMPORT_JSON->importJson(uri); OPEN_MERMAID->importMermaid(uri); SAVE_PDF->exportPdf(uri,false); SAVE_PDF_DARK->exportPdf(uri,true); SAVE_IMAGE->exportPng(uri,false); SAVE_IMAGE_DARK->exportPng(uri,true)
+            OPEN_JSON->openJsonDocument(uri); IMPORT_JSON->importJson(uri); OPEN_MERMAID->importMermaid(uri); SAVE_PDF->exportPdf(uri,false); SAVE_PDF_DARK->exportPdf(uri,true); SAVE_IMAGE->exportPng(uri,false); SAVE_IMAGE_DARK->exportPng(uri,true)
         }
     }
 
-
-    private fun openDocumentFile(uri:Uri){
-        val name=queryDisplayName(uri) ?: ""
-        if(name.endsWith(".mmd",ignoreCase=true) || name.endsWith(".mermaid",ignoreCase=true)) openMermaidDocument(uri)
-        else openJsonDocument(uri)
-    }
-
-    private fun openMermaidDocument(uri:Uri){
-        runCatching{contentResolver.takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION)}
-        runCatching{contentResolver.openInputStream(uri)!!.bufferedReader().use{Mermaid.import(it.readText())}}
-            .onSuccess{
-                history=HistoryManager(2000)
-                doc=it
-                canvas.document=doc
-                canvas.selectedElementId=null
-                canvas.selectedConnectionId=null
-                documentName=queryDisplayName(uri) ?: "FlowForge document.mmd"
-                documentUri=uri
-                documentFormat="MERMAID"
-                documentDirty=false
-                touchRecent(uri,documentName)
-                canvas.fitContent()
-                canvas.invalidate()
-                updateUi()
-            }
-            .onFailure{toast("Could not open ${queryDisplayName(uri) ?: "document"}")}
-    }
 
     private fun openJsonDocument(uri:Uri){
         runCatching{contentResolver.takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION)}
@@ -1069,7 +1051,9 @@ class MainActivity : Activity() {
             .onFailure{toast("Could not open ${queryDisplayName(uri) ?: "document"}")}
     }
     private fun displayDocumentName(name:String):String{
-        return name.trim().ifBlank{"Untitled"}
+        val trimmed=name.trim()
+        if(trimmed.equals("Untitled.flowforge.json",ignoreCase=true)) return "Untitled"
+        return trimmed.replace(Regex("\\.flowforge\\.json$",RegexOption.IGNORE_CASE),"").ifBlank{"Untitled"}
     }
 
     private fun queryDisplayName(uri:Uri):String?{
@@ -1119,11 +1103,6 @@ class MainActivity : Activity() {
         return AlertDialog.Builder(this, theme)
     }
 
-    private fun fitDiagramToScreen(){
-        canvas.resetViewport()
-        canvas.fitContent()
-    }
-
     private fun settings(){
         val dark=uiDark
         val box=LinearLayout(this).apply{
@@ -1151,6 +1130,8 @@ class MainActivity : Activity() {
         val snap=check("Snap blocks to grid",canvas.snapToGrid){canvas.snapToGrid=it;prefs.edit().putBoolean("snapToGrid",it).apply();updateUi()}
         val darkBox=check("Dark canvas",canvas.darkMode){ }
         box.addView(grid);box.addView(snap);box.addView(darkBox)
+        box.addView(settingsButton("Fit diagram to screen"){canvas.fitContent()})
+        box.addView(settingsButton("Reset zoom / position"){canvas.fitContent()})
         box.addView(settingsButton("Manage Building Blocks"){manageAssets()})
         box.addView(settingsButton("Clear Building Blocks"){assets.clear();toast("Building blocks cleared")})
         val dialog=dialogBuilder().setTitle("Settings").setView(box).setPositiveButton("Done",null).setNegativeButton("Cancel",null).create()
