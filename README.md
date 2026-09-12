@@ -37,7 +37,7 @@ The app deliberately uses only Android framework APIs and Kotlin; no external ru
 - `Templates.kt` — starter whole-diagram templates.
 - `Mermaid.kt` — Mermaid import/export.
 
-A GitHub Actions workflow is included at `.github/workflows/android-build.yml` to build a debug APK on GitHub without requiring a local Gradle installation.
+A GitHub Actions workflow is included at `.github/workflows/android-build.yml` to build the release APK on GitHub without requiring a local Gradle installation.
 
 ## Release builds and upgrade compatibility
 
@@ -45,4 +45,4 @@ FlowForge is built as the **release** variant by the included GitHub Actions wor
 
 This is intentionally a **test/development signing key**, not a production signing key. Its credentials use the conventional Android debug-key credentials (`androiddebugkey` / `android`), so the key is suitable for a personal/test distribution but must not be treated as a secret production signing key.
 
-The application ID remains `com.flowforge.app`, and releases must keep using the same signing key and a monotonically increasing `versionCode` so a newer APK can be installed over an older FlowForge APK. Each intentionally released version should increment `versionCode`; the current project version is `0.1.1` (`versionCode 2`).
+The application ID remains `com.flowforge.app`, and releases must keep using the same signing key and a monotonically increasing `versionCode` so a newer APK can be installed over an older FlowForge APK. The current project version is **0.2.4** (`versionCode 24`).
