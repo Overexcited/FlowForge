@@ -151,24 +151,10 @@ class MainActivity : Activity() {
             setBackgroundColor(if (uiDark) 0xff020617.toInt() else 0xff0f172a.toInt())
         }
         top.addView(iconButton("☰", "Menu") { mainMenu() }.also { menuButton = it })
-        val titleGroup = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        titleGroup.addView(TextView(this).apply {
+        top.addView(TextView(this).apply {
             text = "FlowForge"; textSize = 18f; setTextColor(Color.WHITE); gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(6), 0, dp(2), 0)
-        }, LinearLayout.LayoutParams(WRAP_CONTENT, dp(52)))
-        titleGroup.addView(ImageView(this).apply {
-            setImageResource(com.flowforge.app.R.drawable.flowforge_launcher_icon)
-            scaleType = ImageView.ScaleType.CENTER_INSIDE
-            contentDescription = "FlowForge icon"
-            setPadding(dp(2), dp(2), dp(2), dp(2))
-        }, LinearLayout.LayoutParams(dp(32), dp(52)).apply {
-            leftMargin = dp(2)
-            rightMargin = dp(6)
-        })
-        top.addView(titleGroup, LinearLayout.LayoutParams(0, dp(52), 1f))
+            setPadding(dp(6), 0, dp(6), 0)
+        }, LinearLayout.LayoutParams(0, dp(52), 1f))
         top.addView(iconButton("↶", "Undo") { undo() }.also { undoButton = it })
         top.addView(iconButton("↷", "Redo") { redo() }.also { redoButton = it })
         top.addView(iconButton("＋", "Add") { addMenu() }.also { addButton = it })
@@ -1074,25 +1060,25 @@ class MainActivity : Activity() {
     }
 
     private fun exportPdf(uri:Uri,dark:Boolean){
-        val oldDark=canvas.darkMode; val oldGrid=canvas.gridVisible
-        canvas.darkMode=dark; canvas.gridVisible=false
+        val oldDark=canvas.darkMode
+        canvas.darkMode=dark
         runCatching{
             val pdf=PdfDocument(); val page=pdf.startPage(PdfDocument.PageInfo.Builder(1600,1000,1).create())
             page.canvas.drawColor(if(dark)0xff0f172a.toInt() else Color.WHITE)
             drawDocument(page.canvas,1600f,1000f); pdf.finishPage(page)
             contentResolver.openOutputStream(uri)?.use{pdf.writeTo(it)}; pdf.close()
         }.onFailure{toast("Could not save PDF")}
-        canvas.darkMode=oldDark; canvas.gridVisible=oldGrid; canvas.invalidate(); updateUi()
+        canvas.darkMode=oldDark; canvas.invalidate(); updateUi()
     }
     private fun exportPng(uri:Uri,dark:Boolean){
-        val oldDark=canvas.darkMode; val oldGrid=canvas.gridVisible
-        canvas.darkMode=dark; canvas.gridVisible=false
+        val oldDark=canvas.darkMode
+        canvas.darkMode=dark
         runCatching{
             val b=Bitmap.createBitmap(1600,1000,Bitmap.Config.ARGB_8888); val c=Canvas(b)
             c.drawColor(if(dark)0xff0f172a.toInt() else Color.TRANSPARENT); drawDocument(c,1600f,1000f)
             contentResolver.openOutputStream(uri)?.use{b.compress(Bitmap.CompressFormat.PNG,100,it)}; b.recycle()
         }.onFailure{toast("Could not save PNG")}
-        canvas.darkMode=oldDark; canvas.gridVisible=oldGrid; canvas.invalidate(); updateUi()
+        canvas.darkMode=oldDark; canvas.invalidate(); updateUi()
     }
     private fun drawDocument(target:Canvas,w:Float,h:Float){if(doc.elements.isEmpty())return;val minX=doc.elements.minOf{it.x};val minY=doc.elements.minOf{it.y};val maxX=doc.elements.maxOf{it.x+it.width};val maxY=doc.elements.maxOf{it.y+it.height};val pad=80f;val sx=w/(maxX-minX+pad*2);val sy=h/(maxY-minY+pad*2);val sc=min(sx,sy).coerceAtMost(2f);target.save();target.translate(w/2f-(minX+maxX)/2f*sc,h/2f-(minY+maxY)/2f*sc);target.scale(sc,sc);canvas.drawContentForExport(target);target.restore()}
     private fun undo(){history.undo(doc)?.let{doc=it;canvas.document=doc;canvas.selectedElementId=null;canvas.selectedConnectionId=null;documentDirty=true;canvas.invalidate();updateUi()}}
@@ -1127,11 +1113,9 @@ class MainActivity : Activity() {
             setOnClickListener{action()}
         }
         val grid=check("Show background grid",canvas.gridVisible){canvas.gridVisible=it;prefs.edit().putBoolean("gridVisible",it).apply();canvas.invalidate()}
-        val snap=check("Snap blocks to grid",canvas.snapToGrid){canvas.snapToGrid=it;prefs.edit().putBoolean("snapToGrid",it).apply();updateUi()}
         val darkBox=check("Dark canvas",canvas.darkMode){ }
-        box.addView(grid);box.addView(snap);box.addView(darkBox)
+        box.addView(grid);box.addView(darkBox)
         box.addView(settingsButton("Fit diagram to screen"){canvas.fitContent()})
-        box.addView(settingsButton("Reset zoom / position"){canvas.fitContent()})
         box.addView(settingsButton("Manage Building Blocks"){manageAssets()})
         box.addView(settingsButton("Clear Building Blocks"){assets.clear();toast("Building blocks cleared")})
         val dialog=dialogBuilder().setTitle("Settings").setView(box).setPositiveButton("Done",null).setNegativeButton("Cancel",null).create()
@@ -1201,7 +1185,7 @@ class MainActivity : Activity() {
             }
         }
     }
-    private fun applyPreferences(){canvas.gridVisible=prefs.getBoolean("gridVisible",true);canvas.snapToGrid=prefs.getBoolean("snapToGrid",true);canvas.gridSize=prefs.getFloat("gridSize",40f);canvas.darkMode=prefs.getBoolean("darkMode",false);canvas.document=doc;applyThemeChrome();updateUi()}
+    private fun applyPreferences(){canvas.gridVisible=prefs.getBoolean("gridVisible",true);canvas.snapToGrid=true;canvas.gridSize=prefs.getFloat("gridSize",40f);canvas.darkMode=prefs.getBoolean("darkMode",false);canvas.document=doc;applyThemeChrome();updateUi()}
     private fun shapeName(s:ShapeType)=when(s){
         ShapeType.RECTANGLE->"Rectangle (sharp edges)"
         ShapeType.ROUNDED->"Rectangle (round edges)"

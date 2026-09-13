@@ -6,7 +6,7 @@ FlowForge is a native Android visual flowchart editor prototype built with the A
 
 - Infinite-style canvas with pan and pinch zoom.
 - Optional background grid and adjustable grid spacing.
-- Optional snap-to-grid while moving and resizing objects.
+- Blocks snap to the grid while moving and resizing objects.
 - Ten built-in object shapes: rectangle, rounded rectangle, diamond, oval, parallelogram, cylinder, document, hexagon, cloud and circle.
 - Standard semantic element types: process, decision, terminal, data, server, text and note.
 - Eight resize handles on selected objects, including corner/diagonal handles.
@@ -23,7 +23,7 @@ FlowForge is a native Android visual flowchart editor prototype built with the A
 - Mermaid import/export.
 - PDF and JPG export, with an independent option to include/exclude the grid.
 - Android document/file pickers for import/export.
-- Settings for grid, snapping, grid spacing, dark canvas, fit-to-screen and Building Block management.
+- Settings for grid, grid spacing, dark canvas, fit-to-screen and Building Block management.
 
 ## Architecture
 
@@ -45,4 +45,4 @@ FlowForge is built as the **release** variant by the included GitHub Actions wor
 
 This is intentionally a **test/development signing key**, not a production signing key. Its credentials use the conventional Android debug-key credentials (`androiddebugkey` / `android`), so the key is suitable for a personal/test distribution but must not be treated as a secret production signing key.
 
-The application ID remains `com.flowforge.app`, and releases must keep using the same signing key and a monotonically increasing `versionCode` so a newer APK can be installed over an older FlowForge APK. The current project version is **0.2.6** (`versionCode 26`).
+The application ID remains `com.flowforge.app`, and releases must keep using the same signing key and a monotonically increasing `versionCode` so a newer APK can be installed over an older FlowForge APK. The current project version is **0.2.8** (`versionCode 28`).

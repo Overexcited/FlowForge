@@ -54,6 +54,8 @@ class FlowCanvasView(context: Context) : View(context) {
     private var resizeId: String? = null; private var resizeHandle = Handle.NONE
     private var startResize = RectF(); private var lastNotesButton = RectF()
     private var gestureMoved = false
+    private var pressElementId: String? = null
+    private var pressConnectionId: String? = null
     private var connectDownX = 0f
     private var connectDownY = 0f
     private enum class Handle { NONE, TL, T, TR, L, R, BL, B, BR }
@@ -89,7 +91,7 @@ class FlowCanvasView(context: Context) : View(context) {
     fun drawContentForExport(c: Canvas) { drawContent(c, false) }
 
     private fun drawContent(c: Canvas, includeSelection: Boolean) {
-        if (gridVisible) drawGrid(c)
+        if (gridVisible && includeSelection) drawGrid(c)
         document.connections.forEach { drawConnection(c, it) }
         val occlusionWorld = popupBlockOcclusion?.let { r ->
             RectF(
@@ -739,11 +741,13 @@ class FlowCanvasView(context: Context) : View(context) {
                 val selected=selectedElement()
                 if(selected!=null&&!customShapeMode){val h=handleAt(selected,w.x,w.y);if(h!=Handle.NONE){resizeId=selected.id;resizeHandle=h;dragId=null;startResize=RectF(selected.x,selected.y,selected.x+selected.width,selected.y+selected.height);return true};if(!lastNotesButton.isEmpty&&lastNotesButton.contains(w.x,w.y)){onNotesTap?.invoke(selected);return true}}
                 val hit=hitElement(w.x,w.y)
-                if(hit!=null){selectedElementId=hit.id;selectedConnectionId=null;dragId=hit.id;dragOffsetX=w.x-hit.x;dragOffsetY=w.y-hit.y;startMoveX=hit.x;startMoveY=hit.y;val now=System.currentTimeMillis();if(now-lastTap<300)onDoubleTapElement?.invoke(hit);lastTap=now}else{selectedElementId=null;selectedConnectionId=hitConnection(w.x,w.y)?.id}
-                onSelectionChanged?.invoke();invalidate();return true
+                pressElementId=hit?.id
+                pressConnectionId=if(hit==null) hitConnection(w.x,w.y)?.id else null
+                if(hit!=null){dragId=hit.id;dragOffsetX=w.x-hit.x;dragOffsetY=w.y-hit.y;startMoveX=hit.x;startMoveY=hit.y}
+                return true
             }
             MotionEvent.ACTION_POINTER_DOWN->{
-                if(event.pointerCount>=2){dragId=null;resizeId=null;resizeHandle=Handle.NONE;gestureMoved=true}
+                if(event.pointerCount>=2){dragId=null;resizeId=null;resizeHandle=Handle.NONE;pressElementId=null;pressConnectionId=null;gestureMoved=true}
                 return true
             }
             MotionEvent.ACTION_POINTER_UP->{
@@ -754,28 +758,42 @@ class FlowCanvasView(context: Context) : View(context) {
                 if(event.pointerCount>1){gestureMoved=true;return true}
                 val w=world(event.x,event.y)
                 if(customShapeMode){ customGesture.add(PointF(w.x,w.y)); gestureMoved=true; invalidate(); return true }
-                if(resizeId!=null){resize(selectedElement()?:return true,w.x,w.y);gestureMoved=true}else if(dragId!=null){selectedElement()?.let{it.x=w.x-dragOffsetX;it.y=w.y-dragOffsetY;if(snapToGrid){it.x=round(it.x/gridSize)*gridSize;it.y=round(it.y/gridSize)*gridSize}};gestureMoved=true}else{panX+=event.x-lastX;panY+=event.y-lastY;gestureMoved=true}
+                if(resizeId!=null){resize(selectedElement()?:return true,w.x,w.y);gestureMoved=true}else if(dragId!=null){document.elements.firstOrNull{it.id==dragId}?.let{it.x=round((w.x-dragOffsetX)/gridSize)*gridSize;it.y=round((w.y-dragOffsetY)/gridSize)*gridSize};gestureMoved=true}else{panX+=event.x-lastX;panY+=event.y-lastY;gestureMoved=true}
                 lastX=event.x;lastY=event.y;invalidate();return true
             }
             MotionEvent.ACTION_UP->{
                 if(customShapeMode){invalidate();return true}
-                val e=selectedElement();if(dragId!=null&&e!=null&&(e.x!=startMoveX||e.y!=startMoveY))onMoveFinished?.invoke(e,startMoveX,startMoveY)
+                val e=dragId?.let{id->document.elements.firstOrNull{it.id==id}}
+                val movedByGrid = dragId!=null && e!=null && (e.x!=startMoveX || e.y!=startMoveY)
+                if(!movedByGrid){
+                    if(pressElementId!=null){
+                        val tapped=document.elements.firstOrNull{it.id==pressElementId}
+                        if(tapped!=null){
+                            selectedElementId=tapped.id
+                            selectedConnectionId=null
+                            val now=System.currentTimeMillis()
+                            if(now-lastTap<300)onDoubleTapElement?.invoke(tapped)
+                            lastTap=now
+                        }
+                    }else if(pressConnectionId!=null){
+                        selectedElementId=null
+                        selectedConnectionId=pressConnectionId
+                    }else if(dragId==null && resizeId==null){
+                        selectedElementId=null
+                        selectedConnectionId=null
+                    }
+                    onSelectionChanged?.invoke()
+                }
+                if(dragId!=null&&e!=null&&movedByGrid)onMoveFinished?.invoke(e,startMoveX,startMoveY)
                 if(resizeId!=null&&e!=null){val old=startResize;if(old.left!=e.x||old.top!=e.y||old.width()!=e.width||old.height()!=e.height)onResizeFinished?.invoke(e,old.left,old.top,old.width(),old.height())}
-                dragId=null;resizeId=null;resizeHandle=Handle.NONE;return true
+                dragId=null;resizeId=null;resizeHandle=Handle.NONE;pressElementId=null;pressConnectionId=null;return true
             }
-            MotionEvent.ACTION_CANCEL->{dragId=null;resizeId=null;resizeHandle=Handle.NONE;return true}
+            MotionEvent.ACTION_CANCEL->{dragId=null;resizeId=null;resizeHandle=Handle.NONE;pressElementId=null;pressConnectionId=null;return true}
         }
         return true
     }
 
     private fun resize(e:FlowElement,x:Float,y:Float){var l=e.x;var t=e.y;var r=e.x+e.width;var b=e.y+e.height;val minW=70f;val minH=45f;when(resizeHandle){Handle.TL->{l=min(x,r-minW);t=min(y,b-minH)};Handle.T->{t=min(y,b-minH)};Handle.TR->{r=max(x,l+minW);t=min(y,b-minH)};Handle.L->{l=min(x,r-minW)};Handle.R->{r=max(x,l+minW)};Handle.BL->{l=min(x,r-minW);b=max(y,t+minH)};Handle.B->{b=max(y,t+minH)};Handle.BR->{r=max(x,l+minW);b=max(y,t+minH)};else->Unit};if(snapToGrid){l=round(l/gridSize)*gridSize;t=round(t/gridSize)*gridSize;r=round(r/gridSize)*gridSize;b=round(b/gridSize)*gridSize};e.x=l;e.y=t;e.width=r-l;e.height=b-t}
-    private fun explicitEndpoint(e:FlowElement,side:ConnectionSide):PointF = when(side){
-        ConnectionSide.TOP->PointF(e.x+e.width/2f,e.y)
-        ConnectionSide.RIGHT->PointF(e.x+e.width,e.y+e.height/2f)
-        ConnectionSide.BOTTOM->PointF(e.x+e.width/2f,e.y+e.height)
-        ConnectionSide.LEFT->PointF(e.x,e.y+e.height/2f)
-        else->PointF(e.x+e.width/2f,e.y+e.height/2f)
-    }
     private fun handlePoints(r:RectF)=listOf(PointF(r.left,r.top),PointF(r.centerX(),r.top),PointF(r.right,r.top),PointF(r.left,r.centerY()),PointF(r.right,r.centerY()),PointF(r.left,r.bottom),PointF(r.centerX(),r.bottom),PointF(r.right,r.bottom))
     private fun connectionPointAt(x:Float,y:Float):Pair<FlowElement,ConnectionSide>?{
         val threshold=maxOf(28f,30f/scale)
@@ -846,5 +864,5 @@ class FlowCanvasView(context: Context) : View(context) {
     }
 
     fun resetViewport(){scale=1f;panX=0f;panY=0f;invalidate()}
-    fun fitContent(){if(document.elements.isEmpty()){resetViewport();return};val minX=document.elements.minOf{it.x};val minY=document.elements.minOf{it.y};val maxX=document.elements.maxOf{it.x+it.width};val maxY=document.elements.maxOf{it.y+it.height};val pad=80f;val sx=width/(maxX-minX+pad*2);val sy=height/(maxY-minY+pad*2);scale=min(sx,sy).coerceIn(.25f,5f);panX=width/2f-(minX+(maxX-minX)/2f)*scale;panY=height/2f-(minY+(maxY-minY)/2f)*scale;invalidate()}
+    fun fitContent(){resetViewport();if(document.elements.isEmpty()){return};val minX=document.elements.minOf{it.x};val minY=document.elements.minOf{it.y};val maxX=document.elements.maxOf{it.x+it.width};val maxY=document.elements.maxOf{it.y+it.height};val pad=80f;val sx=width/(maxX-minX+pad*2);val sy=height/(maxY-minY+pad*2);scale=min(sx,sy).coerceIn(.25f,5f);panX=width/2f-(minX+(maxX-minX)/2f)*scale;panY=height/2f-(minY+(maxY-minY)/2f)*scale;invalidate()}
 }
