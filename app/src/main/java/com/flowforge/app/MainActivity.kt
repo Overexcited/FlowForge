@@ -325,16 +325,13 @@ class MainActivity : Activity() {
 
     private fun mainMenu(){
         val anchor=menuButton ?: return
-        showStyledPopup("FlowForge", listOf("Recents","Save","Save As…","Open…","Fit diagram","Reset zoom / position","Import","Settings"), anchor, emptySet()){which->
+        showStyledPopup("FlowForge", listOf("Recents","Save As…","Open…","Fit diagram","Settings"), anchor, emptySet()){which->
             when(which){
                 0->recents()
-                1->saveCurrent()
-                2->saveAs()
-                3->openDocument()
-                4->canvas.fitContent()
-                5->canvas.fitContent()
-                6->importMenu()
-                7->settings()
+                1->saveAs()
+                2->openDocument()
+                3->canvas.fitContent()
+                4->settings()
             }
         }
     }
@@ -1129,7 +1126,6 @@ class MainActivity : Activity() {
         val grid=check("Show background grid",canvas.gridVisible){canvas.gridVisible=it;prefs.edit().putBoolean("gridVisible",it).apply();canvas.invalidate()}
         val darkBox=check("Dark canvas",canvas.darkMode){ }
         box.addView(grid);box.addView(darkBox)
-        box.addView(settingsButton("Fit diagram to screen"){canvas.resetViewport();canvas.fitContent()})
         box.addView(settingsButton("Manage Building Blocks"){manageAssets()})
         box.addView(settingsButton("Clear Building Blocks"){assets.clear();toast("Building blocks cleared")})
         val dialog=dialogBuilder().setTitle("Settings").setView(box).setPositiveButton("Done",null).setNegativeButton("Cancel",null).create()

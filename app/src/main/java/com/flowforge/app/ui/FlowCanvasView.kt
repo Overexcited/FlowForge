@@ -740,7 +740,15 @@ class FlowCanvasView(context: Context) : View(context) {
                 val selected=selectedElement()
                 if(selected!=null&&!customShapeMode){val h=handleAt(selected,w.x,w.y);if(h!=Handle.NONE){resizeId=selected.id;resizeHandle=h;dragId=null;startResize=RectF(selected.x,selected.y,selected.x+selected.width,selected.y+selected.height);return true};if(!lastNotesButton.isEmpty&&lastNotesButton.contains(w.x,w.y)){onNotesTap?.invoke(selected);return true}}
                 val hit=hitElement(w.x,w.y)
-                if(hit!=null){dragId=hit.id;dragOffsetX=w.x-hit.x;dragOffsetY=w.y-hit.y;startMoveX=hit.x;startMoveY=hit.y}else{selectedElementId=null;selectedConnectionId=hitConnection(w.x,w.y)?.id}
+                if(hit!=null){
+                    // A block touch starts a possible drag, not a selection. Clear any
+                    // previous selection immediately so its action bar cannot remain
+                    // visible while the newly touched block is being moved. Selection
+                    // is committed only on ACTION_UP when the block has not moved to
+                    // another grid position.
+                    selectedElementId=null;selectedConnectionId=null
+                    dragId=hit.id;dragOffsetX=w.x-hit.x;dragOffsetY=w.y-hit.y;startMoveX=hit.x;startMoveY=hit.y
+                }else{selectedElementId=null;selectedConnectionId=hitConnection(w.x,w.y)?.id}
                 onSelectionChanged?.invoke();invalidate();return true
             }
             MotionEvent.ACTION_POINTER_DOWN->{
