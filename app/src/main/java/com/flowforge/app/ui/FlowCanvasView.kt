@@ -14,7 +14,6 @@ class FlowCanvasView(context: Context) : View(context) {
     var selectedElementId: String? = null
     var selectedConnectionId: String? = null
     var onSelectionChanged: (() -> Unit)? = null
-    var onDoubleTapElement: ((FlowElement) -> Unit)? = null
     var onNotesTap: ((FlowElement) -> Unit)? = null
     var onConnectionRequested: ((String, String, ConnectionSide, ConnectionSide, List<PointF>) -> Unit)? = null
     var onConnectionCancelled: (() -> Unit)? = null
@@ -46,7 +45,7 @@ class FlowCanvasView(context: Context) : View(context) {
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = Typeface.DEFAULT }
     private val gridPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private var scale = 1f; private var panX = 0f; private var panY = 0f
-    private var lastX = 0f; private var lastY = 0f; private var lastTap = 0L
+    private var lastX = 0f; private var lastY = 0f
     private var lastScaleFocusX = 0f; private var lastScaleFocusY = 0f
     private var dragId: String? = null; private var dragOffsetX = 0f; private var dragOffsetY = 0f
     private var startMoveX = 0f; private var startMoveY = 0f
@@ -54,6 +53,8 @@ class FlowCanvasView(context: Context) : View(context) {
     private var startResize = RectF(); private var lastNotesButton = RectF()
     private var gestureMoved = false
     private var dragMovedByGrid = false
+    private var pressElementId: String? = null
+    private var pressConnectionId: String? = null
     private var connectDownX = 0f
     private var connectDownY = 0f
     private enum class Handle { NONE, TL, T, TR, L, R, BL, B, BR }
@@ -738,18 +739,11 @@ class FlowCanvasView(context: Context) : View(context) {
                 gestureMoved=false;dragMovedByGrid=false;lastX=event.x;lastY=event.y;val w=world(event.x,event.y)
                 if(customShapeMode){ customGesture.clear(); customGesture.add(PointF(w.x,w.y)); gestureMoved=false; invalidate(); return true }
                 val selected=selectedElement()
-                if(selected!=null&&!customShapeMode){val h=handleAt(selected,w.x,w.y);if(h!=Handle.NONE){resizeId=selected.id;resizeHandle=h;dragId=null;startResize=RectF(selected.x,selected.y,selected.x+selected.width,selected.y+selected.height);return true};if(!lastNotesButton.isEmpty&&lastNotesButton.contains(w.x,w.y)){onNotesTap?.invoke(selected);return true}}
+                if(selected!=null&&!customShapeMode){val h=handleAt(selected,w.x,w.y);if(h!=Handle.NONE){resizeId=selected.id;resizeHandle=h;dragId=null;pressElementId=null;pressConnectionId=null;startResize=RectF(selected.x,selected.y,selected.x+selected.width,selected.y+selected.height);return true};if(!lastNotesButton.isEmpty&&lastNotesButton.contains(w.x,w.y)){pressElementId=null;pressConnectionId=null;onNotesTap?.invoke(selected);return true}}
                 val hit=hitElement(w.x,w.y)
-                if(hit!=null){
-                    // A block touch starts a possible drag, not a selection. Clear any
-                    // previous selection immediately so its action bar cannot remain
-                    // visible while the newly touched block is being moved. Selection
-                    // is committed only on ACTION_UP when the block has not moved to
-                    // another grid position.
-                    selectedElementId=null;selectedConnectionId=null
-                    dragId=hit.id;dragOffsetX=w.x-hit.x;dragOffsetY=w.y-hit.y;startMoveX=hit.x;startMoveY=hit.y
-                }else{selectedElementId=null;selectedConnectionId=hitConnection(w.x,w.y)?.id}
-                onSelectionChanged?.invoke();invalidate();return true
+                pressElementId=hit?.id;pressConnectionId=if(hit==null)hitConnection(w.x,w.y)?.id else null
+                if(hit!=null){dragId=hit.id;dragOffsetX=w.x-hit.x;dragOffsetY=w.y-hit.y;startMoveX=hit.x;startMoveY=hit.y}
+                return true
             }
             MotionEvent.ACTION_POINTER_DOWN->{
                 if(event.pointerCount>=2){dragId=null;resizeId=null;resizeHandle=Handle.NONE;gestureMoved=true}
@@ -768,29 +762,24 @@ class FlowCanvasView(context: Context) : View(context) {
                     it.x=w.x-dragOffsetX;it.y=w.y-dragOffsetY
                     it.x=round(it.x/gridSize)*gridSize;it.y=round(it.y/gridSize)*gridSize
                     if(it.x!=oldX||it.y!=oldY)dragMovedByGrid=true
-                };gestureMoved=true}else{panX+=event.x-lastX;panY+=event.y-lastY;gestureMoved=true}
+                }}else{panX+=event.x-lastX;panY+=event.y-lastY;gestureMoved=true}
                 lastX=event.x;lastY=event.y;invalidate();return true
             }
             MotionEvent.ACTION_UP->{
                 if(customShapeMode){invalidate();return true}
-                val dragged=document.elements.firstOrNull{it.id==dragId}
-                if(dragId!=null&&dragged!=null){
-                    val movedByGrid=dragMovedByGrid
-                    if(movedByGrid){
-                        onMoveFinished?.invoke(dragged,startMoveX,startMoveY)
-                    }else{
-                        selectedElementId=dragged.id;selectedConnectionId=null
-                        invalidate()
-                        val now=System.currentTimeMillis()
-                        if(now-lastTap<300)onDoubleTapElement?.invoke(dragged)
-                        lastTap=now
-                        onSelectionChanged?.invoke()
-                    }
+                val dragged=if(dragId!=null)document.elements.firstOrNull{it.id==dragId} else null
+                val wasTap=(dragId==null||!dragMovedByGrid)&&!gestureMoved
+                if(wasTap){
+                    if(pressElementId!=null){if(document.elements.any{it.id==pressElementId}){selectedElementId=pressElementId;selectedConnectionId=null}}
+                    else if(pressConnectionId!=null){selectedElementId=null;selectedConnectionId=pressConnectionId}
+                    else{selectedElementId=null;selectedConnectionId=null}
+                    onSelectionChanged?.invoke();invalidate()
                 }
+                if(dragId!=null&&dragged!=null&&dragMovedByGrid)onMoveFinished?.invoke(dragged,startMoveX,startMoveY)
                 val e=selectedElement();if(resizeId!=null&&e!=null){val old=startResize;if(old.left!=e.x||old.top!=e.y||old.width()!=e.width||old.height()!=e.height)onResizeFinished?.invoke(e,old.left,old.top,old.width(),old.height())}
-                dragId=null;resizeId=null;resizeHandle=Handle.NONE;dragMovedByGrid=false;return true
+                dragId=null;resizeId=null;resizeHandle=Handle.NONE;dragMovedByGrid=false;pressElementId=null;pressConnectionId=null;return true
             }
-            MotionEvent.ACTION_CANCEL->{dragId=null;resizeId=null;resizeHandle=Handle.NONE;dragMovedByGrid=false;return true}
+            MotionEvent.ACTION_CANCEL->{dragId=null;resizeId=null;resizeHandle=Handle.NONE;dragMovedByGrid=false;pressElementId=null;pressConnectionId=null;return true}
         }
         return true
     }

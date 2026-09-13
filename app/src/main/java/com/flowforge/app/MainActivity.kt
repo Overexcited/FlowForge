@@ -165,7 +165,7 @@ class MainActivity : Activity() {
             contentDescription = "FlowForge icon"
             setPadding(dp(2), dp(2), dp(2), dp(2))
         }, LinearLayout.LayoutParams(dp(32), dp(52)).apply {
-            leftMargin = dp(2)
+            leftMargin = dp(14)
             rightMargin = dp(6)
         })
         top.addView(titleGroup, LinearLayout.LayoutParams(0, dp(52), 1f))
@@ -197,7 +197,6 @@ class MainActivity : Activity() {
         
 
         canvas.onSelectionChanged = { updateUi() }
-        canvas.onDoubleTapElement = { showElementEditor(it) }
         canvas.onNotesTap = { showNotes(it) }
         canvas.onConnectionRequested = { from, to, fromSide, toSide, route -> createConnection(from, to, fromSide, toSide, route) }
         canvas.onConnectionCancelled = { updateUi() }
@@ -227,14 +226,23 @@ class MainActivity : Activity() {
         setOnClickListener{action()}; layoutParams=LinearLayout.LayoutParams(dp(44),dp(52))
     }
 
-    private fun smallButton(label:String, action:()->Unit) = TextView(this).apply {
+    private fun smallButton(label:String, iconRes:Int?=null, action:()->Unit) = TextView(this).apply {
         text=label; textSize=12f; includeFontPadding=false; gravity=Gravity.CENTER; isSingleLine=true
         // Size the button from its text instead of Android Button's built-in minimum width.
         // 32dp height gives roughly the same visual padding above/below as the 9dp
         // left/right padding used here.
         setPadding(dp(9),0,dp(9),0)
         val dark=uiDark
-        setTextColor(if(dark) Color.WHITE else 0xff172033.toInt())
+        val fg=if(dark) Color.WHITE else 0xff172033.toInt()
+        setTextColor(fg)
+        if(iconRes!=null){
+            val icon=getDrawable(iconRes)?.mutate()
+            icon?.setTint(fg)
+            val size=dp(13)
+            icon?.setBounds(0,0,size,size)
+            setCompoundDrawables(null,null,icon,null)
+            compoundDrawablePadding=dp(4)
+        }
         background=GradientDrawable().apply{
             cornerRadius=dp(7).toFloat()
             setColor(if(dark) 0xff1e293b.toInt() else 0xffe2e8f0.toInt())
@@ -286,7 +294,7 @@ class MainActivity : Activity() {
             bar.addView(smallButton("Cancel"){canvas.cancelCustomShapeMode()})
         } else if(e!=null && !canvas.connectionMode){
             bar.visibility=View.VISIBLE; scroll.visibility=View.VISIBLE
-            bar.addView(smallButton("Edit"){showElementEditor(e)})
+            bar.addView(smallButton("Edit",com.flowforge.app.R.drawable.ic_pencil){showElementEditor(e)})
             bar.addView(smallButton("Connect"){canvas.beginConnectionMode()})
             bar.addView(smallButton("Clone"){cloneElement(e)})
             bar.addView(smallButton("Reset"){resetElement(e)})
@@ -299,7 +307,7 @@ class MainActivity : Activity() {
             bar.addView(smallButton("Color"){showConnectionColorPicker(c)})
             bar.addView(smallButton("Style: ${lineStyleLabel(c.lineStyle)}"){cycleConnectionLineStyle(c)})
             bar.addView(smallButton("Arrows: ${arrowLabel(c.arrowType)}"){cycleConnectionArrow(c)})
-            bar.addView(smallButton("Edit"){showConnectionEditor(c)})
+            bar.addView(smallButton("Edit",com.flowforge.app.R.drawable.ic_pencil){showConnectionEditor(c)})
             bar.addView(smallButton("Delete"){deleteSelected()})
             bar.addView(Space(this), LinearLayout.LayoutParams(0,1,1f))
         } else if(canvas.connectionMode){
@@ -338,7 +346,7 @@ class MainActivity : Activity() {
 
     private fun addMenu(){
         val anchor=addButton ?: return
-        showStyledPopup("Add", listOf("New Block","Saved Block","New Canvas","From Template"), anchor, setOf(2)){choice->
+        showStyledPopup("Add", listOf("New Block","Saved Block","Blank Canvas","From Template"), anchor, setOf(2)){choice->
             when(choice){
                 0->addElement()
                 1->assetPicker()
@@ -362,12 +370,12 @@ class MainActivity : Activity() {
             setTextColor(Color.TRANSPARENT)
             gravity=Gravity.CENTER_VERTICAL; includeFontPadding=false
             setPadding(dp(10),dp(6),dp(10),dp(8))
-        },LinearLayout.LayoutParams(dp(280),dp(34)))
+        },LinearLayout.LayoutParams(dp(200),dp(34)))
         val listBox=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL}
         items.forEachIndexed{index,label->
             if(index in separatorBefore) listBox.addView(View(this).apply{
                 setBackgroundColor(if(dark)0xff475569.toInt() else 0xffcbd5e1.toInt())
-            },LinearLayout.LayoutParams(dp(250),dp(1)).apply{setMargins(dp(15),dp(5),dp(15),dp(5))})
+            },LinearLayout.LayoutParams(dp(170),dp(3)).apply{setMargins(dp(15),dp(5),dp(15),dp(5))})
             listBox.addView(TextView(this).apply{
                 text=label; textSize=16f; gravity=Gravity.CENTER_VERTICAL; includeFontPadding=false
                 setTextColor(if(dark)Color.WHITE else 0xff172033.toInt())
@@ -378,7 +386,7 @@ class MainActivity : Activity() {
                     setStroke(dp(1),if(dark)0xff334155.toInt() else 0xffe2e8f0.toInt())
                 }
                 setOnClickListener{popup.dismiss();onChoice(index)}
-            },LinearLayout.LayoutParams(dp(280),dp(48)).apply{setMargins(0,dp(2),0,dp(2))})
+            },LinearLayout.LayoutParams(dp(200),dp(48)).apply{setMargins(0,dp(2),0,dp(2))})
         }
         val scroll=ScrollView(this).apply{
             isFillViewport=true; isVerticalScrollBarEnabled=false; addView(listBox)
@@ -1104,7 +1112,7 @@ class MainActivity : Activity() {
         val dark=uiDark
         val box=LinearLayout(this).apply{
             orientation=LinearLayout.VERTICAL
-            setPadding(dp(22),dp(8),dp(22),dp(4))
+            setPadding(dp(22),dp(18),dp(22),dp(4))
             setBackgroundColor(if(dark) 0xff0f172a.toInt() else Color.WHITE)
         }
         fun check(text:String,value:Boolean,on:(Boolean)->Unit)=CheckBox(this).apply{
@@ -1113,8 +1121,9 @@ class MainActivity : Activity() {
             buttonTintList=if(android.os.Build.VERSION.SDK_INT>=21) android.content.res.ColorStateList.valueOf(if(uiDark)0xffcbd5e1.toInt() else 0xff334155.toInt()) else null
             setOnCheckedChangeListener{_,v->on(v)}
         }
-        fun settingsButton(text:String, action:()->Unit)=Button(this).apply{
-            this.text=text; isAllCaps=false; minHeight=0; minimumHeight=0
+        fun settingsButton(text:String, topGap:Int, action:()->Unit)=TextView(this).apply{
+            this.text=text; textSize=13f; includeFontPadding=false; gravity=Gravity.CENTER; isSingleLine=true
+            setPadding(dp(14),dp(9),dp(14),dp(9))
             setTextColor(if(uiDark)Color.WHITE else 0xff172033.toInt())
             background=GradientDrawable().apply{
                 cornerRadius=dp(8).toFloat()
@@ -1122,13 +1131,15 @@ class MainActivity : Activity() {
                 setStroke(dp(1),if(uiDark)0xff475569.toInt() else 0xffcbd5e1.toInt())
             }
             setOnClickListener{action()}
+            layoutParams=LinearLayout.LayoutParams(WRAP_CONTENT,dp(36)).apply{topMargin=dp(topGap);bottomMargin=dp(2)}
         }
-        val grid=check("Show background grid",canvas.gridVisible){canvas.gridVisible=it;prefs.edit().putBoolean("gridVisible",it).apply();canvas.invalidate()}
+        val grid=check("Show grid",canvas.gridVisible){canvas.gridVisible=it;prefs.edit().putBoolean("gridVisible",it).apply();canvas.invalidate()}
         val darkBox=check("Dark canvas",canvas.darkMode){ }
         box.addView(grid);box.addView(darkBox)
-        box.addView(settingsButton("Manage Building Blocks"){manageAssets()})
-        box.addView(settingsButton("Clear Building Blocks"){assets.clear();toast("Building blocks cleared")})
+        box.addView(settingsButton("Manage Building Blocks",10){manageAssets()})
+        box.addView(settingsButton("Clear Building Blocks",2){assets.clear();toast("Building blocks cleared")})
         val dialog=dialogBuilder().setTitle("Settings").setView(box).setPositiveButton("Done",null).setNegativeButton("Cancel",null).create()
+        fun dialogBackground(nowDark:Boolean)=GradientDrawable().apply{cornerRadius=dp(16).toFloat();setColor(if(nowDark)0xff0f172a.toInt() else Color.WHITE)}
         fun restyleSettings(){
             val nowDark=uiDark
             val textColor=if(nowDark)Color.WHITE else 0xff172033.toInt()
@@ -1138,15 +1149,14 @@ class MainActivity : Activity() {
             fun restyle(v:View){
                 when(v){
                     is CheckBox->{v.setTextColor(textColor);if(android.os.Build.VERSION.SDK_INT>=21)v.buttonTintList=android.content.res.ColorStateList.valueOf(if(nowDark)0xffcbd5e1.toInt() else 0xff334155.toInt())}
-                    is Button->{v.setTextColor(textColor);v.background=GradientDrawable().apply{cornerRadius=dp(8).toFloat();setColor(buttonBg);setStroke(dp(1),stroke)}}
-                    is TextView->{v.setTextColor(textColor)}
+                    is TextView->{v.setTextColor(textColor);v.background=GradientDrawable().apply{cornerRadius=dp(8).toFloat();setColor(buttonBg);setStroke(dp(1),stroke)}}
                 }
                 if(v is ViewGroup)for(i in 0 until v.childCount)restyle(v.getChildAt(i))
             }
             restyle(box)
             dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(textColor)
             dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.setTextColor(textColor)
-            dialog.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(if(nowDark)0xff0f172a.toInt() else Color.WHITE))
+            dialog.window?.setBackgroundDrawable(dialogBackground(nowDark))
         }
         darkBox.setOnCheckedChangeListener{_,it->
             canvas.darkMode=it
@@ -1160,7 +1170,7 @@ class MainActivity : Activity() {
             val buttonColor=Color.WHITE
             dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(buttonColor)
             dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.setTextColor(buttonColor)
-            dialog.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(0xff0f172a.toInt()))
+            dialog.window?.setBackgroundDrawable(dialogBackground(true))
         }
         dialog.show()
     }
