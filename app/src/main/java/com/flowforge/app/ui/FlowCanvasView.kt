@@ -780,6 +780,7 @@ class FlowCanvasView(context: Context) : View(context) {
                         onMoveFinished?.invoke(dragged,startMoveX,startMoveY)
                     }else{
                         selectedElementId=dragged.id;selectedConnectionId=null
+                        invalidate()
                         val now=System.currentTimeMillis()
                         if(now-lastTap<300)onDoubleTapElement?.invoke(dragged)
                         lastTap=now
