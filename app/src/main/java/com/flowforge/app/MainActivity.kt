@@ -370,14 +370,14 @@ class MainActivity : Activity() {
             setTextColor(Color.TRANSPARENT)
             gravity=Gravity.CENTER_VERTICAL; includeFontPadding=false
             setPadding(dp(10),dp(6),dp(10),dp(8))
-        },LinearLayout.LayoutParams(dp(200),dp(34)))
+        },LinearLayout.LayoutParams(WRAP_CONTENT,dp(34)))
         val listBox=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL}
         items.forEachIndexed{index,label->
             if(index in separatorBefore) listBox.addView(View(this).apply{
                 setBackgroundColor(if(dark)0xff475569.toInt() else 0xffcbd5e1.toInt())
-            },LinearLayout.LayoutParams(dp(170),dp(3)).apply{setMargins(dp(15),dp(5),dp(15),dp(5))})
+            },LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,dp(3)).apply{setMargins(dp(15),dp(5),dp(15),dp(5))})
             listBox.addView(TextView(this).apply{
-                text=label; textSize=16f; gravity=Gravity.CENTER_VERTICAL; includeFontPadding=false
+                text=label; textSize=16f; gravity=Gravity.CENTER_VERTICAL; includeFontPadding=false; isSingleLine=true
                 setTextColor(if(dark)Color.WHITE else 0xff172033.toInt())
                 setPadding(dp(14),0,dp(14),0)
                 background=GradientDrawable().apply{
@@ -386,7 +386,7 @@ class MainActivity : Activity() {
                     setStroke(dp(1),if(dark)0xff334155.toInt() else 0xffe2e8f0.toInt())
                 }
                 setOnClickListener{popup.dismiss();onChoice(index)}
-            },LinearLayout.LayoutParams(dp(200),dp(48)).apply{setMargins(0,dp(2),0,dp(2))})
+            },LinearLayout.LayoutParams(WRAP_CONTENT,dp(48)).apply{setMargins(0,dp(2),0,dp(2))})
         }
         val scroll=ScrollView(this).apply{
             isFillViewport=true; isVerticalScrollBarEnabled=false; addView(listBox)
