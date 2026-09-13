@@ -151,10 +151,24 @@ class MainActivity : Activity() {
             setBackgroundColor(if (uiDark) 0xff020617.toInt() else 0xff0f172a.toInt())
         }
         top.addView(iconButton("☰", "Menu") { mainMenu() }.also { menuButton = it })
-        top.addView(TextView(this).apply {
+        val titleGroup = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        titleGroup.addView(TextView(this).apply {
             text = "FlowForge"; textSize = 18f; setTextColor(Color.WHITE); gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(6), 0, dp(6), 0)
-        }, LinearLayout.LayoutParams(0, dp(52), 1f))
+            setPadding(dp(6), 0, dp(2), 0)
+        }, LinearLayout.LayoutParams(WRAP_CONTENT, dp(52)))
+        titleGroup.addView(ImageView(this).apply {
+            setImageResource(com.flowforge.app.R.drawable.flowforge_launcher_icon)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            contentDescription = "FlowForge icon"
+            setPadding(dp(2), dp(2), dp(2), dp(2))
+        }, LinearLayout.LayoutParams(dp(32), dp(52)).apply {
+            leftMargin = dp(2)
+            rightMargin = dp(6)
+        })
+        top.addView(titleGroup, LinearLayout.LayoutParams(0, dp(52), 1f))
         top.addView(iconButton("↶", "Undo") { undo() }.also { undoButton = it })
         top.addView(iconButton("↷", "Redo") { redo() }.also { redoButton = it })
         top.addView(iconButton("＋", "Add") { addMenu() }.also { addButton = it })
@@ -1115,7 +1129,7 @@ class MainActivity : Activity() {
         val grid=check("Show background grid",canvas.gridVisible){canvas.gridVisible=it;prefs.edit().putBoolean("gridVisible",it).apply();canvas.invalidate()}
         val darkBox=check("Dark canvas",canvas.darkMode){ }
         box.addView(grid);box.addView(darkBox)
-        box.addView(settingsButton("Fit diagram to screen"){canvas.fitContent()})
+        box.addView(settingsButton("Fit diagram to screen"){canvas.resetViewport();canvas.fitContent()})
         box.addView(settingsButton("Manage Building Blocks"){manageAssets()})
         box.addView(settingsButton("Clear Building Blocks"){assets.clear();toast("Building blocks cleared")})
         val dialog=dialogBuilder().setTitle("Settings").setView(box).setPositiveButton("Done",null).setNegativeButton("Cancel",null).create()
@@ -1185,7 +1199,7 @@ class MainActivity : Activity() {
             }
         }
     }
-    private fun applyPreferences(){canvas.gridVisible=prefs.getBoolean("gridVisible",true);canvas.snapToGrid=true;canvas.gridSize=prefs.getFloat("gridSize",40f);canvas.darkMode=prefs.getBoolean("darkMode",false);canvas.document=doc;applyThemeChrome();updateUi()}
+    private fun applyPreferences(){canvas.gridVisible=prefs.getBoolean("gridVisible",true);canvas.gridSize=prefs.getFloat("gridSize",40f);canvas.darkMode=prefs.getBoolean("darkMode",false);canvas.document=doc;applyThemeChrome();updateUi()}
     private fun shapeName(s:ShapeType)=when(s){
         ShapeType.RECTANGLE->"Rectangle (sharp edges)"
         ShapeType.ROUNDED->"Rectangle (round edges)"

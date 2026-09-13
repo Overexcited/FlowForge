@@ -6,7 +6,7 @@ FlowForge is a native Android visual flowchart editor prototype built with the A
 
 - Infinite-style canvas with pan and pinch zoom.
 - Optional background grid and adjustable grid spacing.
-- Blocks snap to the grid while moving and resizing objects.
+- Snap-to-grid is always enabled while moving and resizing objects.
 - Ten built-in object shapes: rectangle, rounded rectangle, diamond, oval, parallelogram, cylinder, document, hexagon, cloud and circle.
 - Standard semantic element types: process, decision, terminal, data, server, text and note.
 - Eight resize handles on selected objects, including corner/diagonal handles.
@@ -21,9 +21,9 @@ FlowForge is a native Android visual flowchart editor prototype built with the A
 - Diagram templates (20 starter templates).
 - FlowForge JSON import/export.
 - Mermaid import/export.
-- PDF and JPG export, with an independent option to include/exclude the grid.
+- PDF and PNG export never include the interactive background grid.
 - Android document/file pickers for import/export.
-- Settings for grid, grid spacing, dark canvas, fit-to-screen and Building Block management.
+- Settings for the background grid, dark canvas, fit-to-screen and Building Block management.
 
 ## Architecture
 
