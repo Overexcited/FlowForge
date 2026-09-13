@@ -303,11 +303,11 @@ class MainActivity : Activity() {
             bar.addView(Space(this), LinearLayout.LayoutParams(0,1,1f))
         } else if(c!=null && !canvas.connectionMode){
             bar.visibility=View.VISIBLE; scroll.visibility=View.VISIBLE
+            bar.addView(smallButton("Edit",com.flowforge.app.R.drawable.ic_pencil){showConnectionEditor(c)})
             bar.addView(smallButton("Reverse"){reverseConnection(c)})
             bar.addView(smallButton("Color"){showConnectionColorPicker(c)})
-            bar.addView(smallButton("Style: ${lineStyleLabel(c.lineStyle)}"){cycleConnectionLineStyle(c)})
+            bar.addView(smallButton("Line: ${lineStyleLabel(c.lineStyle)}"){cycleConnectionLineStyle(c)})
             bar.addView(smallButton("Arrows: ${arrowLabel(c.arrowType)}"){cycleConnectionArrow(c)})
-            bar.addView(smallButton("Edit",com.flowforge.app.R.drawable.ic_pencil){showConnectionEditor(c)})
             bar.addView(smallButton("Delete"){deleteSelected()})
             bar.addView(Space(this), LinearLayout.LayoutParams(0,1,1f))
         } else if(canvas.connectionMode){
@@ -635,6 +635,7 @@ class MainActivity : Activity() {
         val row=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL}
         fun check(label:String,checked:Boolean)=CheckBox(this).apply{
             text=label;isChecked=checked;textSize=13f;includeFontPadding=false;setTextColor(if(dark)Color.WHITE else 0xff172033.toInt());setPadding(0,0,dp(8),0)
+            if(android.os.Build.VERSION.SDK_INT>=21)buttonTintList=android.content.res.ColorStateList.valueOf(if(dark)0xffcbd5e1.toInt() else 0xff334155.toInt())
         }
         row.addView(check("Bold",bold));row.addView(check("Italic",italic));row.addView(check("Underline",underline));return row
     }
