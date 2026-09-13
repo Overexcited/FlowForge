@@ -1,0 +1,57 @@
+--- a/app/src/main/java/com/flowforge/app/ui/FlowCanvasView.kt
++++ b/app/src/main/java/com/flowforge/app/ui/FlowCanvasView.kt
+@@
+     private var gestureMoved = false
++    private var pressElementId: String? = null
++    private var pressConnectionId: String? = null
+     private var connectDownX = 0f
+     private var connectDownY = 0f
+@@
+             MotionEvent.ACTION_DOWN->{
+                 gestureMoved=false;lastX=event.x;lastY=event.y;val w=world(event.x,event.y)
+                 if(customShapeMode){ customGesture.clear(); customGesture.add(PointF(w.x,w.y)); gestureMoved=false; invalidate(); return true }
+                 val selected=selectedElement()
+                 if(selected!=null&&!customShapeMode){val h=handleAt(selected,w.x,w.y);if(h!=Handle.NONE){resizeId=selected.id;resizeHandle=h;dragId=null;startResize=RectF(selected.x,selected.y,selected.x+selected.width,selected.y+selected.height);return true};if(!lastNotesButton.isEmpty&&lastNotesButton.contains(w.x,w.y)){onNotesTap?.invoke(selected);return true}}
+                 val hit=hitElement(w.x,w.y)
+-                if(hit!=null){selectedElementId=hit.id;selectedConnectionId=null;dragId=hit.id;dragOffsetX=w.x-hit.x;dragOffsetY=w.y-hit.y;startMoveX=hit.x;startMoveY=hit.y;val now=System.currentTimeMillis();if(now-lastTap<300)onDoubleTapElement?.invoke(hit);lastTap=now}else{selectedElementId=null;selectedConnectionId=hitConnection(w.x,w.y)?.id}
+-                onSelectionChanged?.invoke();invalidate();return true
++                pressElementId=hit?.id
++                pressConnectionId=if(hit==null) hitConnection(w.x,w.y)?.id else null
++                if(hit!=null){dragId=hit.id;dragOffsetX=w.x-hit.x;dragOffsetY=w.y-hit.y;startMoveX=hit.x;startMoveY=hit.y}
++                return true
+@@
+-                if(resizeId!=null){resize(selectedElement()?:return true,w.x,w.y);gestureMoved=true}else if(dragId!=null){selectedElement()?.let{it.x=w.x-dragOffsetX;it.y=w.y-dragOffsetY;if(snapToGrid){it.x=round(it.x/gridSize)*gridSize;it.y=round(it.y/gridSize)*gridSize}};gestureMoved=true}else{panX+=event.x-lastX;panY+=event.y-lastY;gestureMoved=true}
++                if(resizeId!=null){resize(selectedElement()?:return true,w.x,w.y);gestureMoved=true}else if(dragId!=null){document.elements.firstOrNull{it.id==dragId}?.let{it.x=w.x-dragOffsetX;it.y=w.y-dragOffsetY;if(snapToGrid){it.x=round(it.x/gridSize)*gridSize;it.y=round(it.y/gridSize)*gridSize}};gestureMoved=true}else{panX+=event.x-lastX;panY+=event.y-lastY;gestureMoved=true}
+                 lastX=event.x;lastY=event.y;invalidate();return true
+             }
+             MotionEvent.ACTION_UP->{
+                 if(customShapeMode){invalidate();return true}
+-                val e=selectedElement();if(dragId!=null&&e!=null&&(e.x!=startMoveX||e.y!=startMoveY))onMoveFinished?.invoke(e,startMoveX,startMoveY)
++                val e=dragId?.let{id->document.elements.firstOrNull{it.id==id}}
++                if(!gestureMoved){
++                    if(pressElementId!=null){
++                        val tapped=document.elements.firstOrNull{it.id==pressElementId}
++                        if(tapped!=null){
++                            selectedElementId=tapped.id
++                            selectedConnectionId=null
++                            val now=System.currentTimeMillis()
++                            if(now-lastTap<300)onDoubleTapElement?.invoke(tapped)
++                            lastTap=now
++                        }
++                    }else if(pressConnectionId!=null){
++                        selectedElementId=null
++                        selectedConnectionId=pressConnectionId
++                    }else{
++                        selectedElementId=null
++                        selectedConnectionId=null
++                    }
++                    onSelectionChanged?.invoke()
++                }
++                if(dragId!=null&&e!=null&&(e.x!=startMoveX||e.y!=startMoveY))onMoveFinished?.invoke(e,startMoveX,startMoveY)
+                 if(resizeId!=null&&e!=null){val old=startResize;if(old.left!=e.x||old.top!=e.y||old.width()!=e.width||old.height()!=e.height)onResizeFinished?.invoke(e,old.left,old.top,old.width(),old.height())}
+-                dragId=null;resizeId=null;resizeHandle=Handle.NONE;return true
++                dragId=null;resizeId=null;resizeHandle=Handle.NONE;pressElementId=null;pressConnectionId=null;return true
+             }
+-            MotionEvent.ACTION_CANCEL->{dragId=null;resizeId=null;resizeHandle=Handle.NONE;return true}
++            MotionEvent.ACTION_CANCEL->{dragId=null;resizeId=null;resizeHandle=Handle.NONE;pressElementId=null;pressConnectionId=null;return true}
+*** End Patch
