@@ -89,6 +89,24 @@ class FlowCanvasView(context: Context) : View(context) {
     }
     fun drawContentForExport(c: Canvas) { drawContent(c, false) }
 
+    fun renderElementThumbnail(e: FlowElement, widthPx: Int, heightPx: Int): Bitmap {
+        val bmp = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888)
+        val c = Canvas(bmp)
+        c.drawColor(if (darkMode) 0xff0f172a.toInt() else Color.WHITE)
+        val pad = widthPx * 0.12f
+        val availW = (widthPx - pad * 2).coerceAtLeast(1f)
+        val availH = (heightPx - pad * 2).coerceAtLeast(1f)
+        val s = min(availW / e.width, availH / e.height)
+        val drawW = e.width * s
+        val drawH = e.height * s
+        c.save()
+        c.translate((widthPx - drawW) / 2f, (heightPx - drawH) / 2f)
+        c.scale(s, s)
+        drawElement(c, e.copy(x = 0f, y = 0f))
+        c.restore()
+        return bmp
+    }
+
     private fun drawContent(c: Canvas, includeSelection: Boolean) {
         val interactive = includeSelection
         if (interactive && gridVisible) drawGrid(c)

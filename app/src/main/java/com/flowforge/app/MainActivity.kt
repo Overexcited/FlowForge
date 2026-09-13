@@ -859,7 +859,70 @@ class MainActivity : Activity() {
         val names=list.map{it.name}
         showCompactPopup(addButton ?: canvas,"Building Blocks",names,{ which -> insertAsset(list[which]) })
     }
-    private fun manageAssets(){val list=assets.all();if(list.isEmpty()){toast("No building blocks");return};val names=list.map{"${it.name} — ${shapeName(it.element.shape)}"}.toTypedArray();dialogBuilder().setTitle("Manage Building Blocks").setItems(names){_,which->dialogBuilder().setTitle(list[which].name).setItems(arrayOf("Insert","Delete")){_,a->if(a==0)insertAsset(list[which])else{assets.delete(list[which].id);toast("Deleted")}}.show()}.setPositiveButton("Done",null).show()}
+    private fun manageAssets(){
+        val list=assets.all()
+        if(list.isEmpty()){toast("No saved blocks");return}
+        val dark=uiDark
+        val thumbW=dp(96); val thumbH=dp(56)
+        val box=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(10),dp(10),dp(10),dp(4))}
+        val listBox=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL}
+        val scroll=ScrollView(this).apply{isVerticalScrollBarEnabled=false;addView(listBox)}
+        lateinit var dialog:AlertDialog
+        fun buildRows(){
+            listBox.removeAllViews()
+            assets.all().forEach{asset->
+                val row=LinearLayout(this).apply{
+                    orientation=LinearLayout.HORIZONTAL; gravity=Gravity.CENTER_VERTICAL
+                    setPadding(dp(6),dp(6),dp(6),dp(6))
+                    background=GradientDrawable().apply{
+                        cornerRadius=dp(9).toFloat()
+                        setColor(if(dark)0xff1e293b.toInt() else 0xfff1f5f9.toInt())
+                        setStroke(dp(1),if(dark)0xff334155.toInt() else 0xffe2e8f0.toInt())
+                    }
+                    layoutParams=LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,WRAP_CONTENT).apply{setMargins(0,dp(3),0,dp(3))}
+                }
+                val thumb=ImageView(this).apply{
+                    setImageBitmap(canvas.renderElementThumbnail(asset.element,thumbW,thumbH))
+                    clipToOutline=true
+                    background=GradientDrawable().apply{
+                        cornerRadius=dp(6).toFloat()
+                        setColor(Color.TRANSPARENT)
+                        setStroke(dp(1),if(dark)0xff334155.toInt() else 0xffe2e8f0.toInt())
+                    }
+                    layoutParams=LinearLayout.LayoutParams(thumbW,thumbH)
+                }
+                val label=TextView(this).apply{
+                    text="${asset.name}\n${shapeName(asset.element.shape)}"
+                    textSize=13f;includeFontPadding=false
+                    setTextColor(if(dark)Color.WHITE else 0xff172033.toInt())
+                    setPadding(dp(10),0,dp(10),0)
+                }
+                val trash=ImageView(this).apply{
+                    setImageDrawable(getDrawable(com.flowforge.app.R.drawable.ic_trash))
+                    scaleType=ImageView.ScaleType.CENTER_INSIDE
+                    setPadding(dp(9),dp(9),dp(9),dp(9))
+                    isClickable=true;isFocusable=true
+                    layoutParams=LinearLayout.LayoutParams(dp(40),dp(40))
+                    setOnClickListener{assets.delete(asset.id);toast("Deleted");buildRows()}
+                }
+                row.addView(thumb)
+                row.addView(label,LinearLayout.LayoutParams(0,WRAP_CONTENT,1f))
+                row.addView(trash)
+                row.setOnClickListener{dialog.dismiss();insertAsset(asset)}
+                listBox.addView(row)
+            }
+            if(listBox.childCount==0)dialog.dismiss()
+        }
+        val rowH=dp(74)
+        box.addView(scroll,LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,rowH*list.size.coerceAtMost(5)))
+        dialog=dialogBuilder().setTitle("Manage Saved Blocks").setView(box).setPositiveButton("Done",null).create()
+        dialog.setOnShowListener{
+            dialog.window?.setBackgroundDrawable(GradientDrawable().apply{cornerRadius=dp(16).toFloat();setColor(if(dark)0xff0f172a.toInt() else Color.WHITE)})
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(if(dark)Color.WHITE else 0xff172033.toInt())
+        }
+        buildRows()
+        dialog.show()
+    }
     private fun insertAsset(a:ElementAsset){val before=doc.deepCopy();val e=a.element.copy(id=java.util.UUID.randomUUID().toString(),x=300f,y=220f);doc.elements+=e;canvas.selectedElementId=e.id;canvas.selectedConnectionId=null;history.record(before,doc.deepCopy());documentDirty=true;canvas.invalidate();updateUi()}
     private fun showNotes(e:FlowElement){dialogBuilder().setTitle("Notes — ${e.label}").setMessage(e.notes.ifBlank{"No notes attached."}).setPositiveButton("Close",null).show()}
     private fun templates(){
@@ -1137,8 +1200,7 @@ class MainActivity : Activity() {
         val grid=check("Show grid",canvas.gridVisible){canvas.gridVisible=it;prefs.edit().putBoolean("gridVisible",it).apply();canvas.invalidate()}
         val darkBox=check("Dark canvas",canvas.darkMode){ }
         box.addView(grid);box.addView(darkBox)
-        box.addView(settingsButton("Manage Building Blocks",10){manageAssets()})
-        box.addView(settingsButton("Clear Building Blocks",2){assets.clear();toast("Building blocks cleared")})
+        box.addView(settingsButton("Manage saved blocks",10){manageAssets()})
         val dialog=dialogBuilder().setTitle("Settings").setView(box).setPositiveButton("Done",null).setNegativeButton("Cancel",null).create()
         fun dialogBackground(nowDark:Boolean)=GradientDrawable().apply{cornerRadius=dp(16).toFloat();setColor(if(nowDark)0xff0f172a.toInt() else Color.WHITE)}
         fun restyleSettings(){
