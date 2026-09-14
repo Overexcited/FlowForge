@@ -226,7 +226,7 @@ class MainActivity : Activity() {
         setOnClickListener{action()}; layoutParams=LinearLayout.LayoutParams(dp(44),dp(52))
     }
 
-    private fun smallButton(label:String, iconRes:Int?=null, rightMarginPx:Int=dp(4), action:()->Unit) = TextView(this).apply {
+    private fun smallButton(label:String, iconRes:Int?=null, rightMarginPx:Int=dp(4), leftMarginPx:Int=dp(4), action:()->Unit) = TextView(this).apply {
         text=label; textSize=12f; includeFontPadding=false; gravity=Gravity.CENTER; isSingleLine=true
         // Size the button from its text instead of Android Button's built-in minimum width.
         // 32dp height gives roughly the same visual padding above/below as the 9dp
@@ -249,7 +249,7 @@ class MainActivity : Activity() {
             setStroke(dp(1),if(dark) 0xff475569.toInt() else 0xffcbd5e1.toInt())
         }
         setOnClickListener{action()}
-        layoutParams=LinearLayout.LayoutParams(WRAP_CONTENT,dp(32)).apply{setMargins(dp(4),dp(1),rightMarginPx,dp(1))}
+        layoutParams=LinearLayout.LayoutParams(WRAP_CONTENT,dp(32)).apply{setMargins(leftMarginPx,dp(1),rightMarginPx,dp(1))}
         // Keep each button at its natural text width. Never squeeze or wrap labels.
         // The toolbar's spacer fills any remaining screen width, while the horizontal
         // margins provide a comfortable gap between the buttons.
@@ -303,12 +303,13 @@ class MainActivity : Activity() {
             bar.addView(Space(this), LinearLayout.LayoutParams(0,1,1f))
         } else if(c!=null && !canvas.connectionMode){
             bar.visibility=View.VISIBLE; scroll.visibility=View.VISIBLE
-            bar.addView(smallButton("Edit",com.flowforge.app.R.drawable.ic_pencil,dp(4)-1){showConnectionEditor(c)})
-            bar.addView(smallButton("Reverse",rightMarginPx=dp(4)-1){reverseConnection(c)})
-            bar.addView(smallButton("Color",rightMarginPx=dp(4)-1){showConnectionColorPicker(c)})
-            bar.addView(smallButton("Line: ${lineStyleLabel(c.lineStyle)}",rightMarginPx=dp(4)-1){cycleConnectionLineStyle(c)})
-            bar.addView(smallButton("Arrows: ${arrowLabel(c.arrowType)}",rightMarginPx=dp(4)-1){cycleConnectionArrow(c)})
-            bar.addView(smallButton("Delete",rightMarginPx=dp(4)-1){deleteSelected()})
+            val connBtnMargin=dp(3)
+            bar.addView(smallButton("Edit",com.flowforge.app.R.drawable.ic_pencil,rightMarginPx=connBtnMargin,leftMarginPx=connBtnMargin){showConnectionEditor(c)})
+            bar.addView(smallButton("Reverse",rightMarginPx=connBtnMargin,leftMarginPx=connBtnMargin){reverseConnection(c)})
+            bar.addView(smallButton("Color",rightMarginPx=connBtnMargin,leftMarginPx=connBtnMargin){showConnectionColorPicker(c)})
+            bar.addView(smallButton("Line: ${lineStyleLabel(c.lineStyle)}",rightMarginPx=connBtnMargin,leftMarginPx=connBtnMargin){cycleConnectionLineStyle(c)})
+            bar.addView(smallButton("Arrows: ${arrowLabel(c.arrowType)}",rightMarginPx=connBtnMargin,leftMarginPx=connBtnMargin){cycleConnectionArrow(c)})
+            bar.addView(smallButton("Delete",rightMarginPx=connBtnMargin,leftMarginPx=connBtnMargin){deleteSelected()})
             bar.addView(Space(this), LinearLayout.LayoutParams(0,1,1f))
         } else if(canvas.connectionMode){
             bar.visibility=View.VISIBLE; scroll.visibility=View.VISIBLE
