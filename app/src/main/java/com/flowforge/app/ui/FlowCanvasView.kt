@@ -243,8 +243,8 @@ class FlowCanvasView(context: Context) : View(context) {
         ShapeType.CIRCLE->c.drawOval(r,paint)
     }}
     private fun starPath(r:RectF):Path{
-        val p=Path();val cx=r.centerX();val cy=r.centerY();val outer=min(r.width(),r.height())*.5f;val inner=outer*.42f
-        for(i in 0 until 10){val a=(-Math.PI/2.0)+(i*Math.PI/5.0);val rad=if(i%2==0)outer else inner;val x=cx+(kotlin.math.cos(a)*rad).toFloat();val y=cy+(kotlin.math.sin(a)*rad).toFloat();if(i==0)p.moveTo(x,y)else p.lineTo(x,y)};p.close();return p
+        val p=Path();val cx=r.centerX();val cy=r.centerY();val outerX=r.width()*.5f;val outerY=r.height()*.5f;val innerX=outerX*.42f;val innerY=outerY*.42f
+        for(i in 0 until 10){val a=(-Math.PI/2.0)+(i*Math.PI/5.0);val ox=if(i%2==0)outerX else innerX;val oy=if(i%2==0)outerY else innerY;val x=cx+(kotlin.math.cos(a)*ox).toFloat();val y=cy+(kotlin.math.sin(a)*oy).toFloat();if(i==0)p.moveTo(x,y)else p.lineTo(x,y)};p.close();return p
     }
     private fun cloudPath(r:RectF):Path{
         val p=Path();val w=r.width();val h=r.height();val base=r.bottom-h*.16f;
@@ -451,7 +451,8 @@ class FlowCanvasView(context: Context) : View(context) {
         raw+=end
         val cleaned=mutableListOf<PointF>()
         raw.forEach { if(cleaned.isEmpty() || hypot(it.x-cleaned.last().x,it.y-cleaned.last().y)>1f) cleaned+=it }
-        return buildSmoothRoutePath(cleaned)
+        val simplified=simplifyRoute(cleaned,obstacleRects(a.id,b.id))
+        return buildSmoothRoutePath(simplified)
     }
 
     private fun buildSmoothRoutePath(points:List<PointF>):Path {
@@ -465,13 +466,13 @@ class FlowCanvasView(context: Context) : View(context) {
         // Keep the automatically selected route, but turn every corner into a
         // generous quadratic bend.  This remains one continuous Path rather than
         // a collection of separately drawn line segments.
-        val radius=34f
+        val radius=56f
         for(i in 1 until points.lastIndex){
             val prev=points[i-1]; val cur=points[i]; val next=points[i+1]
             val inLen=hypot(cur.x-prev.x,cur.y-prev.y)
             val outLen=hypot(next.x-cur.x,next.y-cur.y)
             if(inLen<1f || outLen<1f){ p.lineTo(cur.x,cur.y); continue }
-            val r=min(radius,min(inLen,outLen)*.42f)
+            val r=min(radius,min(inLen,outLen)*.5f)
             val before=PointF(cur.x+(prev.x-cur.x)*r/inLen,cur.y+(prev.y-cur.y)*r/inLen)
             val after=PointF(cur.x+(next.x-cur.x)*r/outLen,cur.y+(next.y-cur.y)*r/outLen)
             p.lineTo(before.x,before.y)
@@ -556,7 +557,8 @@ class FlowCanvasView(context: Context) : View(context) {
         for(pt in raw){
             if(cleaned.isEmpty() || hypot(pt.x-cleaned.last().x,pt.y-cleaned.last().y)>1f) cleaned+=pt
         }
-        return if(cleaned.size>=2) cleaned else listOf(start,end)
+        val simplified=simplifyRoute(cleaned,obstacleRects(a.id,b.id))
+        return if(simplified.size>=2) simplified else listOf(start,end)
     }
 
     private fun offsetFromSide(p:PointF,side:ConnectionSide,d:Float):PointF = when(side){
