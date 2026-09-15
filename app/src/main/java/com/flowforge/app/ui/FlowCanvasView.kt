@@ -455,18 +455,18 @@ class FlowCanvasView(context: Context) : View(context) {
         // Keep the route straight on every leg and round only the actual changes
         // of direction. This produces a flowing path around obstacles instead of
         // bending the entire route through the waypoints.
-        var radius=56f
+        var radius=120f
         repeat(10){
             val candidate=buildFilletedRouteCandidate(cleaned,radius)
             if(curvePathClear(candidate,obstacles,ignoreEndpointObstacles=true))return candidate
-            radius*=.82f
+            radius*=.90f
         }
 
         // A smaller fillet is preferable to falling back to a sharp polyline.
         // The route points are already outside the obstacle geometry, so this
         // final candidate preserves the intended smooth transition as closely as
         // possible while remaining conservative.
-        return buildFilletedRouteCandidate(cleaned,14f)
+        return buildFilletedRouteCandidate(cleaned,36f)
     }
 
     private data class RouteFillet(val inPoint:PointF,val outPoint:PointF,val c1:PointF,val c2:PointF)
@@ -497,7 +497,7 @@ class FlowCanvasView(context: Context) : View(context) {
                 continue
             }
             val tanHalf=maxOf(.0001f,tan(theta/2f))
-            val tangentDistance=minOf(radius/tanHalf,inLen*.38f,outLen*.38f)
+            val tangentDistance=minOf(radius/tanHalf,inLen*.48f,outLen*.48f)
             if(tangentDistance<2f){
                 fillets+=null
                 continue
