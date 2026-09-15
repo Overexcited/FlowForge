@@ -431,11 +431,8 @@ class FlowCanvasView(context: Context) : View(context) {
         fromSide:ConnectionSide,
         toSide:ConnectionSide,
     ):Path {
-        // Keep port leads short so routing only adds bends when an obstacle
-        // actually requires one.
         val clearance=20f
         val obstacles=obstacleRects(a.id,b.id)
-
         val sourceOut=offsetFromSide(start,fromSide,clearance)
         val targetOut=offsetFromSide(end,toSide,clearance)
         val routeObstacles=obstacles+listOf(
@@ -443,12 +440,9 @@ class FlowCanvasView(context: Context) : View(context) {
             expandedElementRect(b,8f)
         )
 
-        // A clear port-to-port path is preferred. The short endpoint guards
-        // prevent the visibility router from treating the source/target blocks
-        // as large obstacles and manufacturing an unnecessary final elbow.
         if(segmentClear(sourceOut,targetOut,routeObstacles)) {
             val simple=simplifyRoute(listOf(start,sourceOut,targetOut,end),routeObstacles)
-            return buildSmoothRoutePath(simple)
+            return buildSmoothRoutePath(simple,routeObstacles)
         }
 
         val middle=visibilityRoute(sourceOut,targetOut,routeObstacles,0)
@@ -460,37 +454,89 @@ class FlowCanvasView(context: Context) : View(context) {
         raw+=end
 
         val simplified=simplifyRoute(raw,routeObstacles)
-        return buildSmoothRoutePath(if(simplified.size>=2) simplified else listOf(start,end))
+        return buildSmoothRoutePath(if(simplified.size>=2) simplified else listOf(start,end),routeObstacles)
     }
 
-    private fun buildSmoothRoutePath(points:List<PointF>):Path {
+    private fun buildSmoothRoutePath(points:List<PointF>,obstacles:List<RectF> = emptyList()):Path {
         val cleaned=removeRedundantRoutePoints(points)
-        val p=Path()
-        if(cleaned.isEmpty())return p
-        p.moveTo(cleaned[0].x,cleaned[0].y)
-        if(cleaned.size==2){
-            p.lineTo(cleaned[1].x,cleaned[1].y)
-            return p
+        if(cleaned.isEmpty())return Path()
+        if(cleaned.size==2)return Path().apply{moveTo(cleaned[0].x,cleaned[0].y);lineTo(cleaned[1].x,cleaned[1].y)}
+
+        // Prefer broad circular-style fillets instead of small elbow rounds.
+        // Try the broadest curve first, then reduce it only if the curve would
+        // clip an obstacle.
+        val radii=floatArrayOf(52f,44f,36f,28f,20f,12f)
+        for(radius in radii){
+            val candidate=buildRoundedPolyline(cleaned,radius)
+            if(obstacles.isEmpty()||pathClear(candidate,obstacles))return candidate
         }
-        val radius=20f
-        for(i in 1 until cleaned.lastIndex){
-            val prev=cleaned[i-1]
-            val cur=cleaned[i]
-            val next=cleaned[i+1]
+        return buildRoundedPolyline(cleaned,8f)
+    }
+
+    private fun buildRoundedPolyline(points:List<PointF>,radius:Float):Path {
+        val p=Path()
+        p.moveTo(points.first().x,points.first().y)
+        for(i in 1 until points.lastIndex){
+            val prev=points[i-1]
+            val cur=points[i]
+            val next=points[i+1]
             val inLen=hypot(cur.x-prev.x,cur.y-prev.y)
             val outLen=hypot(next.x-cur.x,next.y-cur.y)
             if(inLen<1f||outLen<1f){
                 p.lineTo(cur.x,cur.y)
                 continue
             }
-            val r=min(radius,min(inLen,outLen)*.32f)
-            val before=PointF(cur.x+(prev.x-cur.x)*r/inLen,cur.y+(prev.y-cur.y)*r/inLen)
-            val after=PointF(cur.x+(next.x-cur.x)*r/outLen,cur.y+(next.y-cur.y)*r/outLen)
+
+            val inDx=(cur.x-prev.x)/inLen
+            val inDy=(cur.y-prev.y)/inLen
+            val outDx=(next.x-cur.x)/outLen
+            val outDy=(next.y-cur.y)/outLen
+            val dot=(-inDx*outDx)+(-inDy*outDy)
+            val angle=acos(dot.coerceIn(-1f,1f))
+            if(angle<0.08f||abs(Math.PI.toFloat()-angle)<0.08f){
+                p.lineTo(cur.x,cur.y)
+                continue
+            }
+
+            val half=angle*.5f
+            val tanHalf=tan(half).coerceAtLeast(.08f)
+            val tangentDistance=min(radius/tanHalf,min(inLen,outLen)*.45f)
+            val effectiveRadius=tangentDistance*tanHalf
+            val before=PointF(cur.x-inDx*tangentDistance,cur.y-inDy*tangentDistance)
+            val after=PointF(cur.x+outDx*tangentDistance,cur.y+outDy*tangentDistance)
+
+            // Cubic Bezier approximation of the circular fillet.
+            val arcAngle=Math.PI.toFloat()-angle
+            val handle=4f/3f*effectiveRadius*tan(arcAngle/4f)
+            val c1=PointF(before.x+inDx*handle,before.y+inDy*handle)
+            val c2=PointF(after.x-outDx*handle,after.y-outDy*handle)
+
             p.lineTo(before.x,before.y)
-            p.quadTo(cur.x,cur.y,after.x,after.y)
+            p.cubicTo(c1.x,c1.y,c2.x,c2.y,after.x,after.y)
         }
-        p.lineTo(cleaned.last().x,cleaned.last().y)
+        p.lineTo(points.last().x,points.last().y)
         return p
+    }
+
+    private fun pathClear(path:Path,obstacles:List<RectF>):Boolean {
+        val measure=PathMeasure(path,false)
+        if(measure.length<=0f)return true
+        val pos=FloatArray(2)
+        var previous:PointF?=null
+        var d=0f
+        val step=8f
+        while(d<=measure.length){
+            if(!measure.getPosTan(d,pos,null))return false
+            val current=PointF(pos[0],pos[1])
+            previous?.let{if(!segmentClear(it,current,obstacles))return false}
+            previous=current
+            d+=step
+        }
+        if(previous!=null&&measure.getPosTan(measure.length,pos,null)){
+            val current=PointF(pos[0],pos[1])
+            if(!segmentClear(previous,current,obstacles))return false
+        }
+        return true
     }
 
     private fun removeRedundantRoutePoints(points:List<PointF>):List<PointF>{
@@ -545,7 +591,7 @@ class FlowCanvasView(context: Context) : View(context) {
     private fun obstacleRects(a:String,b:String):List<RectF> =
         document.elements
             .filter { it.id != a && it.id != b }
-            .map { RectF(it.x - 24f, it.y - 24f, it.x + it.width + 24f, it.y + it.height + 24f) }
+            .map { RectF(it.x - 8f, it.y - 8f, it.x + it.width + 8f, it.y + it.height + 8f) }
 
     private fun expandedElementRect(e:FlowElement, margin:Float = 40f):RectF =
         RectF(e.x - margin, e.y - margin, e.x + e.width + margin, e.y + e.height + margin)
