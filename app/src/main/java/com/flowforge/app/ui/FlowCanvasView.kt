@@ -426,9 +426,9 @@ class FlowCanvasView(context: Context) : View(context) {
     private data class RouteObstacle(val points:List<PointF>, val clearance:Float)
 
     private fun buildDynamicRoutedPath(a:FlowElement,b:FlowElement,start:PointF,end:PointF,fromSide:ConnectionSide,toSide:ConnectionSide):Path {
-        val clearance=10f
-        val sourceOut=shapePortLead(a,start,fromSide,14f)
-        val targetOut=shapePortLead(b,end,toSide,14f)
+        val clearance=12f
+        val sourceOut=shapePortLead(a,start,fromSide,18f)
+        val targetOut=shapePortLead(b,end,toSide,18f)
         val obstacles=routeObstacles(a,b,clearance)
         if(segmentClear(sourceOut,targetOut,obstacles)){
             return buildContinuousRoutePath(listOf(start,sourceOut,targetOut,end),obstacles)
@@ -455,18 +455,18 @@ class FlowCanvasView(context: Context) : View(context) {
         // Keep the route straight on every leg and round only the actual changes
         // of direction. This produces a flowing path around obstacles instead of
         // bending the entire route through the waypoints.
-        var radius=32f
-        repeat(8){
+        var radius=56f
+        repeat(10){
             val candidate=buildFilletedRouteCandidate(cleaned,radius)
             if(curvePathClear(candidate,obstacles,ignoreEndpointObstacles=true))return candidate
-            radius*=.72f
+            radius*=.82f
         }
 
         // A smaller fillet is preferable to falling back to a sharp polyline.
         // The route points are already outside the obstacle geometry, so this
         // final candidate preserves the intended smooth transition as closely as
         // possible while remaining conservative.
-        return buildFilletedRouteCandidate(cleaned,4f)
+        return buildFilletedRouteCandidate(cleaned,14f)
     }
 
     private data class RouteFillet(val inPoint:PointF,val outPoint:PointF,val c1:PointF,val c2:PointF)
@@ -719,7 +719,7 @@ class FlowCanvasView(context: Context) : View(context) {
 
     private fun visibilityRoute(start:PointF,end:PointF,obs:List<RouteObstacle>,bias:Int=0):List<PointF>{
         if(segmentClear(start,end,obs))return listOf(start,end)
-        val nodes=mutableListOf<PointF>();nodes+=start;nodes+=end;obs.forEach{o->for(i in o.points.indices)nodes+=routeNodeForVertex(o.points,i,o.clearance+26f)}
+        val nodes=mutableListOf<PointF>();nodes+=start;nodes+=end;obs.forEach{o->for(i in o.points.indices)nodes+=routeNodeForVertex(o.points,i,o.clearance+54f)}
         val n=nodes.size;val dist=FloatArray(n){Float.POSITIVE_INFINITY};val prev=IntArray(n){-1};val used=BooleanArray(n);dist[0]=0f
         repeat(n){var u=-1;var best=Float.POSITIVE_INFINITY;for(i in 0 until n)if(!used[i]&&dist[i]<best){best=dist[i];u=i};if(u<0)return@repeat;used[u]=true;for(v in 0 until n){if(used[v]||v==u||!segmentClear(nodes[u],nodes[v],obs))continue;val length=hypot(nodes[v].x-nodes[u].x,nodes[v].y-nodes[u].y);val bendPenalty=if(prev[u]>=0)turnPenalty(nodes[prev[u]],nodes[u],nodes[v]) else 0f;val sidePenalty=if(bias!=0&&prev[u]>=0&&abs(nodes[v].x-nodes[u].x)>abs(nodes[v].y-nodes[u].y)&&sign(nodes[v].x-nodes[u].x).toInt()!=bias)30f else 0f;val candidate=dist[u]+length+bendPenalty+sidePenalty;if(candidate<dist[v]){dist[v]=candidate;prev[v]=u}}}
         if(!dist[1].isFinite())return listOf(start,end)
