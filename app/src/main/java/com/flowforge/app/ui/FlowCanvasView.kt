@@ -951,7 +951,7 @@ class FlowCanvasView(context: Context) : View(context) {
     private fun wrap(s:String,max:Int):List<String>{
         if(s.isEmpty())return listOf("")
         val out=mutableListOf<String>()
-        s.replace("\r\n","\r\n").replace('\r','\r\n').split("\r\n", limit = Int.MAX_VALUE).forEach{paragraph->
+        s.replace("\r\n","\n").replace('\r','\n').split("\n", limit = Int.MAX_VALUE).forEach{paragraph->
             if(paragraph.length<=max){out+=paragraph;return@forEach}
             var rest=paragraph
             while(rest.length>max){
