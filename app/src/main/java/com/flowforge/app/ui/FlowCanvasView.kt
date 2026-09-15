@@ -430,100 +430,103 @@ class FlowCanvasView(context: Context) : View(context) {
         val sourceOut=shapePortLead(a,start,fromSide,18f)
         val targetOut=shapePortLead(b,end,toSide,18f)
         val obstacles=routeObstacles(a,b,clearance)
+
+        // First try the unobstructed route.  It is still rendered as a cubic
+        // connection, so even a simple connection has a gentle bow rather than
+        // a mechanically straight stroke.
         if(segmentClear(sourceOut,targetOut,obstacles)){
-            return buildContinuousRoutePath(listOf(start,sourceOut,targetOut,end),obstacles)
+            val direct=listOf(start,sourceOut,targetOut,end)
+            val path=buildContinuousRoutePath(direct,obstacles)
+            if(curvePathClear(path,obstacles,ignoreEndpointObstacles=true))return path
         }
-        val middle=visibilityRoute(sourceOut,targetOut,obstacles,0)
+
+        // A broad spline needs more room than a polyline.  Try progressively
+        // larger visibility offsets so the smoothing never has to collapse into
+        // a sharp corner merely to avoid an obstacle.
+        val offsets=floatArrayOf(54f,78f,104f,132f,164f)
+        for(offset in offsets){
+            val middle=visibilityRoute(sourceOut,targetOut,obstacles,0,offset)
+            val raw=mutableListOf<PointF>()
+            raw+=start
+            raw+=sourceOut
+            raw.addAll(middle.drop(1).dropLast(1))
+            raw+=targetOut
+            raw+=end
+            val simplified=simplifyRoute(raw,obstacles)
+            val path=buildContinuousRoutePath(simplified,obstacles)
+            if(curvePathClear(path,obstacles,ignoreEndpointObstacles=true))return path
+        }
+
+        // Keep the same smooth geometry as the last candidate rather than
+        // reverting to a polyline with an angular elbow.
+        val middle=visibilityRoute(sourceOut,targetOut,obstacles,0,164f)
         val raw=mutableListOf<PointF>()
         raw+=start
         raw+=sourceOut
         raw.addAll(middle.drop(1).dropLast(1))
         raw+=targetOut
         raw+=end
-        val simplified=simplifyRoute(raw,obstacles)
-        return buildContinuousRoutePath(if(simplified.size>=2)simplified else listOf(start,end),obstacles)
+        return buildContinuousRoutePath(simplifyRoute(raw,obstacles),obstacles)
     }
 
     private fun buildContinuousRoutePath(points:List<PointF>,obstacles:List<RouteObstacle>):Path {
         val cleaned=removeRedundantRoutePoints(points)
-        val straight=Path()
-        if(cleaned.isEmpty())return straight
-        straight.moveTo(cleaned[0].x,cleaned[0].y)
-        if(cleaned.size==1)return straight
-        if(cleaned.size==2){straight.lineTo(cleaned[1].x,cleaned[1].y);return straight}
+        if(cleaned.isEmpty())return Path()
+        if(cleaned.size==1){val p=Path();p.moveTo(cleaned[0].x,cleaned[0].y);return p}
 
-        // Keep the route straight on every leg and round only the actual changes
-        // of direction. This produces a flowing path around obstacles instead of
-        // bending the entire route through the waypoints.
-        var radius=120f
-        repeat(10){
-            val candidate=buildFilletedRouteCandidate(cleaned,radius)
+        // This is deliberately not a rounded polyline.  Every connection is a
+        // sequence of cubic Bezier spans with C1-continuous tangents.  At every
+        // change of direction the tangent turns gradually over a large portion
+        // of the adjacent spans, producing one flowing, crescent-like curve.
+        val tensions=floatArrayOf(.94f,.88f,.82f,.76f,.70f,.64f,.58f)
+        for(tension in tensions){
+            val candidate=buildSmoothSplineCandidate(cleaned,tension)
             if(curvePathClear(candidate,obstacles,ignoreEndpointObstacles=true))return candidate
-            radius*=.90f
         }
-
-        // A smaller fillet is preferable to falling back to a sharp polyline.
-        // The route points are already outside the obstacle geometry, so this
-        // final candidate preserves the intended smooth transition as closely as
-        // possible while remaining conservative.
-        return buildFilletedRouteCandidate(cleaned,36f)
+        return buildSmoothSplineCandidate(cleaned,.58f)
     }
 
-    private data class RouteFillet(val inPoint:PointF,val outPoint:PointF,val c1:PointF,val c2:PointF)
-
-    private fun buildFilletedRouteCandidate(points:List<PointF>,radius:Float):Path {
-        val fillets=ArrayList<RouteFillet?>(points.size)
-        fillets+=null
-        for(i in 1 until points.lastIndex){
-            val a=points[i-1]
-            val b=points[i]
-            val c=points[i+1]
-            val inDx=b.x-a.x
-            val inDy=b.y-a.y
-            val inLen=maxOf(.001f,hypot(inDx,inDy))
-            val outDx=c.x-b.x
-            val outDy=c.y-b.y
-            val outLen=maxOf(.001f,hypot(outDx,outDy))
-            val inUx=inDx/inLen
-            val inUy=inDy/inLen
-            val outUx=outDx/outLen
-            val outUy=outDy/outLen
-            val towardPreviousX=-inUx
-            val towardPreviousY=-inUy
-            val dot=(towardPreviousX*outUx+towardPreviousY*outUy).coerceIn(-.9999f,.9999f)
-            val theta=acos(dot)
-            if(theta<.08f || theta>3.05f){
-                fillets+=null
-                continue
-            }
-            val tanHalf=maxOf(.0001f,tan(theta/2f))
-            val tangentDistance=minOf(radius/tanHalf,inLen*.48f,outLen*.48f)
-            if(tangentDistance<2f){
-                fillets+=null
-                continue
-            }
-            val actualRadius=tangentDistance*tanHalf
-            val inPoint=PointF(b.x-inUx*tangentDistance,b.y-inUy*tangentDistance)
-            val outPoint=PointF(b.x+outUx*tangentDistance,b.y+outUy*tangentDistance)
-            val handle=(4f/3f)*tan(theta/4f)*actualRadius
-            val c1=PointF(inPoint.x+inUx*handle,inPoint.y+inUy*handle)
-            val c2=PointF(outPoint.x-outUx*handle,outPoint.y-outUy*handle)
-            fillets+=RouteFillet(inPoint,outPoint,c1,c2)
-        }
-        fillets+=null
-
+    private fun buildSmoothSplineCandidate(points:List<PointF>,tension:Float):Path {
         val p=Path()
         p.moveTo(points[0].x,points[0].y)
-        for(i in 1 until points.lastIndex){
-            val f=fillets[i]
-            if(f==null){
-                p.lineTo(points[i].x,points[i].y)
-            }else{
-                p.lineTo(f.inPoint.x,f.inPoint.y)
-                p.cubicTo(f.c1.x,f.c1.y,f.c2.x,f.c2.y,f.outPoint.x,f.outPoint.y)
-            }
+        if(points.size==2){
+            val a=points[0];val b=points[1]
+            val dx=b.x-a.x;val dy=b.y-a.y
+            val len=maxOf(.001f,hypot(dx,dy))
+            val nx=-dy/len
+            val ny=dx/len
+            val bow=minOf(72f,len*.18f)
+            val reach=len*.34f
+            val c1=PointF(a.x+dx/len*reach+nx*bow,a.y+dy/len*reach+ny*bow)
+            val c2=PointF(b.x-dx/len*reach+nx*bow,b.y-dy/len*reach+ny*bow)
+            p.cubicTo(c1.x,c1.y,c2.x,c2.y,b.x,b.y)
+            return p
         }
-        p.lineTo(points.last().x,points.last().y)
+
+        val tangents=ArrayList<PointF>(points.size)
+        for(i in points.indices){
+            val tangent=when(i){
+                0->normalized(points[0],points[1])
+                points.lastIndex->normalized(points[i-1],points[i])
+                else->normalized(points[i-1],points[i+1])
+            }
+            tangents+=tangent
+        }
+
+        for(i in 0 until points.lastIndex){
+            val a=points[i]
+            val b=points[i+1]
+            val len=hypot(b.x-a.x,b.y-a.y)
+            val prevLen=if(i>0)hypot(a.x-points[i-1].x,a.y-points[i-1].y) else len
+            val nextLen=if(i+2<points.size)hypot(points[i+2].x-b.x,points[i+2].y-b.y) else len
+            // Large handles spread every turn across the neighboring route
+            // spans.  There is intentionally no lineTo between curve spans.
+            val handleIn=minOf(len*.62f,prevLen*.62f)*tension
+            val handleOut=minOf(len*.62f,nextLen*.62f)*tension
+            val c1=PointF(a.x+tangents[i].x*handleIn,a.y+tangents[i].y*handleIn)
+            val c2=PointF(b.x-tangents[i+1].x*handleOut,b.y-tangents[i+1].y*handleOut)
+            p.cubicTo(c1.x,c1.y,c2.x,c2.y,b.x,b.y)
+        }
         return p
     }
 
@@ -717,9 +720,9 @@ class FlowCanvasView(context: Context) : View(context) {
 
     private fun offsetFromSide(p:PointF,side:ConnectionSide,d:Float):PointF=when(side){ConnectionSide.TOP->PointF(p.x,p.y-d);ConnectionSide.RIGHT->PointF(p.x+d,p.y);ConnectionSide.BOTTOM->PointF(p.x,p.y+d);ConnectionSide.LEFT->PointF(p.x-d,p.y);else->p}
 
-    private fun visibilityRoute(start:PointF,end:PointF,obs:List<RouteObstacle>,bias:Int=0):List<PointF>{
+    private fun visibilityRoute(start:PointF,end:PointF,obs:List<RouteObstacle>,bias:Int=0,nodeOffset:Float=54f):List<PointF>{
         if(segmentClear(start,end,obs))return listOf(start,end)
-        val nodes=mutableListOf<PointF>();nodes+=start;nodes+=end;obs.forEach{o->for(i in o.points.indices)nodes+=routeNodeForVertex(o.points,i,o.clearance+54f)}
+        val nodes=mutableListOf<PointF>();nodes+=start;nodes+=end;obs.forEach{o->for(i in o.points.indices)nodes+=routeNodeForVertex(o.points,i,o.clearance+nodeOffset)}
         val n=nodes.size;val dist=FloatArray(n){Float.POSITIVE_INFINITY};val prev=IntArray(n){-1};val used=BooleanArray(n);dist[0]=0f
         repeat(n){var u=-1;var best=Float.POSITIVE_INFINITY;for(i in 0 until n)if(!used[i]&&dist[i]<best){best=dist[i];u=i};if(u<0)return@repeat;used[u]=true;for(v in 0 until n){if(used[v]||v==u||!segmentClear(nodes[u],nodes[v],obs))continue;val length=hypot(nodes[v].x-nodes[u].x,nodes[v].y-nodes[u].y);val bendPenalty=if(prev[u]>=0)turnPenalty(nodes[prev[u]],nodes[u],nodes[v]) else 0f;val sidePenalty=if(bias!=0&&prev[u]>=0&&abs(nodes[v].x-nodes[u].x)>abs(nodes[v].y-nodes[u].y)&&sign(nodes[v].x-nodes[u].x).toInt()!=bias)30f else 0f;val candidate=dist[u]+length+bendPenalty+sidePenalty;if(candidate<dist[v]){dist[v]=candidate;prev[v]=u}}}
         if(!dist[1].isFinite())return listOf(start,end)
@@ -948,7 +951,7 @@ class FlowCanvasView(context: Context) : View(context) {
     private fun wrap(s:String,max:Int):List<String>{
         if(s.isEmpty())return listOf("")
         val out=mutableListOf<String>()
-        s.replace("\r\n","\n").replace('\r','\n').split("\n", limit = Int.MAX_VALUE).forEach{paragraph->
+        s.replace("\r\n","\r\n").replace('\r','\r\n').split("\r\n", limit = Int.MAX_VALUE).forEach{paragraph->
             if(paragraph.length<=max){out+=paragraph;return@forEach}
             var rest=paragraph
             while(rest.length>max){
