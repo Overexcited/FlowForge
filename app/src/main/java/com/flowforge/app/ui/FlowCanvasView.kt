@@ -431,40 +431,26 @@ class FlowCanvasView(context: Context) : View(context) {
         fromSide:ConnectionSide,
         toSide:ConnectionSide,
     ):Path {
-        // Keep the port lead short. The router should only add bends when an
-        // actual obstacle requires them, not because of an artificial endpoint
-        // clearance.
+        // Keep port leads short so routing only adds bends when an obstacle
+        // actually requires one.
         val clearance=20f
         val obstacles=obstacleRects(a.id,b.id)
 
-        // First try the genuinely shortest route. The side-direction check keeps
-        // a straight line from leaving a port backwards and then crossing the
-        // source/target shape again.
-        if(portDirectionCompatible(start,end,fromSide,toSide) &&
-            segmentClear(start,end,obstacles)) {
-            return buildSmoothRoutePath(listOf(start,end))
-        }
-
         val sourceOut=offsetFromSide(start,fromSide,clearance)
         val targetOut=offsetFromSide(end,toSide,clearance)
-
-        // Endpoint guards are deliberately much smaller than the unrelated-node
-        // clearance. sourceOut/targetOut are 20px from the actual shape, so they
-        // are outside these 8px guards and can be used as visibility-graph nodes.
         val routeObstacles=obstacles+listOf(
             expandedElementRect(a,8f),
             expandedElementRect(b,8f)
         )
 
-        // If the two short port leads can see one another, don't invoke the full
-        // obstacle router. This is what removes the common unnecessary elbow
-        // immediately before the destination.
+        // A clear port-to-port path is preferred. The short endpoint guards
+        // prevent the visibility router from treating the source/target blocks
+        // as large obstacles and manufacturing an unnecessary final elbow.
         if(segmentClear(sourceOut,targetOut,routeObstacles)) {
             val simple=simplifyRoute(listOf(start,sourceOut,targetOut,end),routeObstacles)
-            return buildSmoothRoutePath(if(simple.size>=2) simple else listOf(start,end))
+            return buildSmoothRoutePath(simple)
         }
 
-        // Collision avoidance is now the fallback rather than the default.
         val middle=visibilityRoute(sourceOut,targetOut,routeObstacles,0)
         val raw=mutableListOf<PointF>()
         raw+=start
@@ -477,36 +463,6 @@ class FlowCanvasView(context: Context) : View(context) {
         return buildSmoothRoutePath(if(simplified.size>=2) simplified else listOf(start,end))
     }
 
-    private fun portDirectionCompatible(
-        start:PointF,
-        end:PointF,
-        fromSide:ConnectionSide,
-        toSide:ConnectionSide
-    ):Boolean {
-        val dx=end.x-start.x
-        val dy=end.y-start.y
-        val distance=hypot(dx,dy)
-        if(distance<1f)return true
-
-        val fromDot=when(fromSide){
-            ConnectionSide.TOP->-dy
-            ConnectionSide.RIGHT->dx
-            ConnectionSide.BOTTOM->dy
-            ConnectionSide.LEFT->-dx
-            else->distance
-        }
-        val toDx=start.x-end.x
-        val toDy=start.y-end.y
-        val toDot=when(toSide){
-            ConnectionSide.TOP->-toDy
-            ConnectionSide.RIGHT->toDx
-            ConnectionSide.BOTTOM->toDy
-            ConnectionSide.LEFT->-toDx
-            else->distance
-        }
-        return fromDot>=-distance*.08f && toDot>=-distance*.08f
-    }
-
     private fun buildSmoothRoutePath(points:List<PointF>):Path {
         val cleaned=removeRedundantRoutePoints(points)
         val p=Path()
@@ -516,9 +472,6 @@ class FlowCanvasView(context: Context) : View(context) {
             p.lineTo(cleaned[1].x,cleaned[1].y)
             return p
         }
-
-        // Smooth real routing corners, but don't let a curve consume most of a
-        // short segment. A 20px cap keeps the final approach visually tight.
         val radius=20f
         for(i in 1 until cleaned.lastIndex){
             val prev=cleaned[i-1]
@@ -526,7 +479,10 @@ class FlowCanvasView(context: Context) : View(context) {
             val next=cleaned[i+1]
             val inLen=hypot(cur.x-prev.x,cur.y-prev.y)
             val outLen=hypot(next.x-cur.x,next.y-cur.y)
-            if(inLen<1f||outLen<1f){p.lineTo(cur.x,cur.y);continue}
+            if(inLen<1f||outLen<1f){
+                p.lineTo(cur.x,cur.y)
+                continue
+            }
             val r=min(radius,min(inLen,outLen)*.32f)
             val before=PointF(cur.x+(prev.x-cur.x)*r/inLen,cur.y+(prev.y-cur.y)*r/inLen)
             val after=PointF(cur.x+(next.x-cur.x)*r/outLen,cur.y+(next.y-cur.y)*r/outLen)
@@ -544,10 +500,6 @@ class FlowCanvasView(context: Context) : View(context) {
             if(out.isEmpty()||hypot(pt.x-out.last().x,pt.y-out.last().y)>2f)out+=pt
         }
         if(out.size<=2)return out
-
-        // Remove near-collinear points before smoothing. This is deliberately
-        // geometric rather than obstacle-based, so it cannot create a new route;
-        // it only removes points that describe essentially the same direction.
         var changed=true
         while(changed&&out.size>2){
             changed=false
@@ -562,7 +514,12 @@ class FlowCanvasView(context: Context) : View(context) {
                 val bcy=c.y-b.y
                 val cross=abs(abx*bcy-aby*bcx)
                 val scale=maxOf(1f,hypot(abx,aby)+hypot(bcx,bcy))
-                if(cross/scale<.035f){out.removeAt(i);changed=true}else i++
+                if(cross/scale<.035f){
+                    out.removeAt(i)
+                    changed=true
+                } else {
+                    i++
+                }
             }
         }
         return out
@@ -585,12 +542,9 @@ class FlowCanvasView(context: Context) : View(context) {
         return turns.take(6)
     }
     private fun direction(a:PointF,b:PointF):Int{val dx=b.x-a.x;val dy=b.y-a.y;return if(abs(dx)>=abs(dy))if(dx>=0)0 else 1 else if(dy>=0)2 else 3}
-
     private fun obstacleRects(a:String,b:String):List<RectF> =
         document.elements
             .filter { it.id != a && it.id != b }
-            // A 24px safety envelope leaves usable whitespace around blocks while
-            // still keeping routes visibly separated from unrelated objects.
             .map { RectF(it.x - 24f, it.y - 24f, it.x + it.width + 24f, it.y + it.height + 24f) }
 
     private fun expandedElementRect(e:FlowElement, margin:Float = 40f):RectF =
@@ -626,22 +580,10 @@ class FlowCanvasView(context: Context) : View(context) {
         val clearance=20f
         val sourceOut=offsetFromSide(start,fromSide,clearance)
         val targetOut=offsetFromSide(end,toSide,clearance)
-
-        // The finger path chooses the connection faces; it is not retained as a
-        // permanent route. This prevents small finger wiggles from becoming
-        // unnecessary connector bends.
-        val otherObstacles=obstacleRects(a.id,b.id)
-        val obstacles=otherObstacles+listOf(
+        val obstacles=obstacleRects(a.id,b.id)+listOf(
             expandedElementRect(a,8f),
             expandedElementRect(b,8f)
         )
-
-        // Use the same shortest-path preference while the connection is being
-        // created as we use when it is subsequently redrawn.
-        if(portDirectionCompatible(start,end,fromSide,toSide) &&
-            segmentClear(start,end,otherObstacles)) {
-            return listOf(start,end)
-        }
 
         if(segmentClear(sourceOut,targetOut,obstacles)) {
             val simple=simplifyRoute(listOf(start,sourceOut,targetOut,end),obstacles)
@@ -658,10 +600,10 @@ class FlowCanvasView(context: Context) : View(context) {
 
         val cleaned=mutableListOf<PointF>()
         for(pt in raw){
-            if(cleaned.isEmpty() || hypot(pt.x-cleaned.last().x,pt.y-cleaned.last().y)>1f) cleaned+=pt
+            if(cleaned.isEmpty()||hypot(pt.x-cleaned.last().x,pt.y-cleaned.last().y)>1f)cleaned+=pt
         }
         val simplified=simplifyRoute(cleaned,obstacles)
-        return if(simplified.size>=2) simplified else listOf(start,end)
+        return if(simplified.size>=2)simplified else listOf(start,end)
     }
 
     private fun offsetFromSide(p:PointF,side:ConnectionSide,d:Float):PointF = when(side){
@@ -674,8 +616,8 @@ class FlowCanvasView(context: Context) : View(context) {
 
     /**
      * Finds a short, obstacle-free polyline using obstacle corners as visibility
-     * nodes. The bend penalty is intentionally high enough to prefer a slightly
-     * longer route with fewer turns over a short route full of elbows.
+     * nodes. Unlike a square grid, this does not manufacture dozens of tiny
+     * horizontal/vertical steps, so the final smoothed connector stays elegant.
      */
     private fun visibilityRoute(start:PointF,end:PointF,obs:List<RectF>,bias:Int=0):List<PointF>{
         if(segmentClear(start,end,obs)) return listOf(start,end)
@@ -710,9 +652,7 @@ class FlowCanvasView(context: Context) : View(context) {
                 if(!segmentClear(nodes[u],nodes[v],obs))continue
                 val length=hypot(nodes[v].x-nodes[u].x,nodes[v].y-nodes[u].y)
                 val bendPenalty=if(prev[u]>=0 && !sameDirection(nodes[prev[u]],nodes[u],nodes[v])) 96f else 0f
-                val sidePenalty=if(bias!=0 && prev[u]>=0 &&
-                    abs(nodes[v].x-nodes[u].x)>abs(nodes[v].y-nodes[u].y) &&
-                    sign(nodes[v].x-nodes[u].x).toInt()!=bias) 90f else 0f
+                val sidePenalty=if(bias!=0 && prev[u]>=0 && abs(nodes[v].x-nodes[u].x)>abs(nodes[v].y-nodes[u].y) && sign(nodes[v].x-nodes[u].x).toInt()!=bias) 90f else 0f
                 val candidate=dist[u]+length+bendPenalty+sidePenalty
                 if(candidate<dist[v]){dist[v]=candidate;prev[v]=u}
             }
@@ -755,7 +695,7 @@ class FlowCanvasView(context: Context) : View(context) {
                (if(abs(abx)>=abs(aby)) sign(abx)==sign(bcx) else sign(aby)==sign(bcy))
     }
 
-    private fun simplifyRoute(points:List<PointF>,obs:List<RectF>):List<PointF>{
+    private fun simplifyRoute(points:List<PointF>, obs:List<RectF>):List<PointF>{
         if(points.size<=2)return points
         val out=points.toMutableList()
         var changed=true
