@@ -1,4 +1,4 @@
-name: Build FlowForge v0.2.17
+name: Build FlowForge v0.2.16
 on:
   push:
   pull_request:
@@ -17,9 +17,6 @@ jobs:
           java-version: '17'
 
       - uses: android-actions/setup-android@v3
-        with:
-          packages: platform-tools
-          accept-android-sdk-licenses: true
 
       - name: Install Android SDK platform
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
