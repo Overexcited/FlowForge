@@ -454,8 +454,8 @@ class FlowCanvasView(context: Context) : View(context) {
         toSide: ConnectionSide,
     ): Path {
         // --- 1. Square route ---
-        val expand = 44f
-        val stub = expand + 20f // 64 — always outside padded AABBs
+        val expand = 36f
+        val stub = expand + 16f // 52 — outside padded AABBs, tighter loops
         val sourceOut = offsetFromSide(start, fromSide, stub)
         val targetOut = offsetFromSide(end, toSide, stub)
         val coreObstacles = listOf(
@@ -527,27 +527,66 @@ class FlowCanvasView(context: Context) : View(context) {
         b: FlowElement,
         expand: Float,
     ): List<PointF> {
-        val L = min(a.x, b.x) - expand
-        val R = max(a.x + a.width, b.x + b.width) + expand
-        val T = min(a.y, b.y) - expand
-        val Btm = max(a.y + a.height, b.y + b.height) + expand
+        // Tighter corridor pad — only enough to clear corners, not huge loops.
+        val pad = min(expand, 28f)
+        val L = min(a.x, b.x) - pad
+        val R = max(a.x + a.width, b.x + b.width) + pad
+        val T = min(a.y, b.y) - pad
+        val Btm = max(a.y + a.height, b.y + b.height) + pad
+
+        // Same face → tight U parallel to that face (hand-drawing style).
+        if (fromSide == toSide) {
+            return when (fromSide) {
+                ConnectionSide.TOP -> {
+                    val y = min(sourceOut.y, targetOut.y, T)
+                    listOf(sourceOut, PointF(sourceOut.x, y), PointF(targetOut.x, y), targetOut)
+                }
+                ConnectionSide.BOTTOM -> {
+                    val y = max(sourceOut.y, targetOut.y, Btm)
+                    listOf(sourceOut, PointF(sourceOut.x, y), PointF(targetOut.x, y), targetOut)
+                }
+                ConnectionSide.LEFT -> {
+                    val x = min(sourceOut.x, targetOut.x, L)
+                    listOf(sourceOut, PointF(x, sourceOut.y), PointF(x, targetOut.y), targetOut)
+                }
+                else -> {
+                    val x = max(sourceOut.x, targetOut.x, R)
+                    listOf(sourceOut, PointF(x, sourceOut.y), PointF(x, targetOut.y), targetOut)
+                }
+            }
+        }
+
+        // Prefer the side that keeps travel short relative to both endpoints.
         val midX = (sourceOut.x + targetOut.x) / 2f
+        val midY = (sourceOut.y + targetOut.y) / 2f
         val goLeft = abs(midX - L) <= abs(R - midX)
+        val goTop = abs(midY - T) <= abs(Btm - midY)
+
+        // Side corridor (default for mixed/opposite faces)
         val sideX = if (goLeft) L else R
+        val viaSide = listOf(
+            sourceOut,
+            PointF(sideX, sourceOut.y),
+            PointF(sideX, targetOut.y),
+            targetOut
+        )
+        // Top/bottom corridor alternative
+        val sideY = if (goTop) T else Btm
+        val viaTB = listOf(
+            sourceOut,
+            PointF(sourceOut.x, sideY),
+            PointF(targetOut.x, sideY),
+            targetOut
+        )
 
-        // Always leave along fromSide and arrive along toSide by sandwiching
-        // a side corridor that connects the two outward half-planes.
-        val pts = mutableListOf<PointF>()
-        pts += sourceOut
-
-        // After leaving source, move to the side corridor at sourceOut's depth
-        pts += PointF(sideX, sourceOut.y)
-
-        // Travel along the side to the target's outward depth
-        pts += PointF(sideX, targetOut.y)
-
-        pts += targetOut
-        return pts
+        // Pick the shorter of the two corridors
+        fun len(pts: List<PointF>): Float {
+            var s = 0f
+            for (i in 0 until pts.lastIndex)
+                s += hypot(pts[i + 1].x - pts[i].x, pts[i + 1].y - pts[i].y)
+            return s
+        }
+        return if (len(viaSide) <= len(viaTB)) viaSide else viaTB
     }
 
     /**
