@@ -11,8 +11,8 @@ android {
         applicationId = "com.flowforge.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 36
-        versionName = "0.2.16"
+        versionCode = 51
+        versionName = "0.2.27"
     }
 
     signingConfigs {

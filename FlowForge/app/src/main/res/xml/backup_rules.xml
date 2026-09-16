@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!-- Session recovery state is deliberately excluded from backup. It is temporary process-recovery state, not user data, and must never reappear after uninstall/reinstall. -->
+    <exclude domain="file" path="flowforge-session-cache.json" />
+    <exclude domain="file" path="flowforge-session-cache.tmp" />
+</full-backup-content>
