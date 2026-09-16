@@ -439,10 +439,11 @@ class FlowCanvasView(context: Context) : View(context) {
     }
 
     /**
-     * Step 1 — square/orthogonal routing (v0.2.16 visibility graph + face stubs)
-     * so topology and obstacle avoidance stay correct.
-     * Step 2 — Chaikin-smooth that polyline until every angle is gone; the
-     * drawn path is continuous at pixel level (no visible elbows).
+     * Exactly as requested:
+     *  1. Compute the safe square/orthogonal route (v0.2.16 visibility logic,
+     *     including expanded source/target so the path never cuts through shapes)
+     *  2. Chaikin-smooth that polyline until every corner is gone — continuous
+     *     curve only, no visible kinks or elbows.
      */
     private fun buildDynamicRoutedPath(
         a: FlowElement,
@@ -452,13 +453,15 @@ class FlowCanvasView(context: Context) : View(context) {
         fromSide: ConnectionSide,
         toSide: ConnectionSide,
     ): Path {
-        // Square route: moderate stubs; source/target are NOT expanded as
-        // obstacles (that caused the last-moment outward hook in 0.2.16).
-        val stub = 36f
-        val sourceOut = offsetFromSide(start, fromSide, stub)
-        val targetOut = offsetFromSide(end, toSide, stub)
-        val obstacles = obstacleRects(a.id, b.id) // other blocks only
-
+        // --- 1. Square route (v0.2.16 topology) ---
+        val sourceOut = offsetFromSide(start, fromSide, 48f)
+        val targetOut = offsetFromSide(end, toSide, 48f)
+        // Source + target expanded so the route is forced around both blocks
+        // (without this, 2-block diagrams go straight through the shapes).
+        val obstacles = obstacleRects(a.id, b.id) + listOf(
+            expandedElementRect(a, 36f),
+            expandedElementRect(b, 36f)
+        )
         val middle = visibilityRoute(sourceOut, targetOut, obstacles, 0)
         val raw = mutableListOf<PointF>()
         raw += start
@@ -469,7 +472,7 @@ class FlowCanvasView(context: Context) : View(context) {
 
         val square = mutableListOf<PointF>()
         raw.forEach {
-            if (square.isEmpty() || hypot(it.x - square.last().x, it.y - square.last().y) > 1.5f)
+            if (square.isEmpty() || hypot(it.x - square.last().x, it.y - square.last().y) > 1f)
                 square += it
         }
         if (square.size < 2) {
@@ -479,13 +482,13 @@ class FlowCanvasView(context: Context) : View(context) {
             return p
         }
 
-        return pathFromSmoothPoints(chaikinSmooth(square, passes = 6))
+        // --- 2. Absolute smooth: Chaikin until no angles remain ---
+        return pathFromSmoothPoints(chaikinSmooth(square, passes = 8))
     }
 
     /**
-     * Chaikin corner-cutting. Each pass replaces every segment with two points
-     * at 1/4 and 3/4; endpoints stay fixed. After several passes the polyline
-     * converges to a quadratic B-spline — no visible angles remain.
+     * Chaikin corner-cutting. Endpoints stay pinned to the attachment points.
+     * 8 passes → quadratic B-spline approximation; no visible kinks.
      */
     private fun chaikinSmooth(points: List<PointF>, passes: Int): List<PointF> {
         if (points.size < 3) return points
@@ -493,20 +496,20 @@ class FlowCanvasView(context: Context) : View(context) {
         repeat(passes) {
             if (cur.size < 3) return@repeat
             val next = ArrayList<PointF>(cur.size * 2)
-            next += cur.first() // pin start attachment
+            next += cur.first()
             for (i in 0 until cur.lastIndex) {
                 val p0 = cur[i]
                 val p1 = cur[i + 1]
                 next += PointF(p0.x * 0.75f + p1.x * 0.25f, p0.y * 0.75f + p1.y * 0.25f)
                 next += PointF(p0.x * 0.25f + p1.x * 0.75f, p0.y * 0.25f + p1.y * 0.75f)
             }
-            next += cur.last() // pin end attachment
+            next += cur.last()
             cur = next
         }
         return cur
     }
 
-    /** Dense Chaikin points → continuous Path (quad chain, angle-free). */
+    /** Dense smoothed points → continuous Path (quad chain). */
     private fun pathFromSmoothPoints(pts: List<PointF>): Path {
         val p = Path()
         if (pts.isEmpty()) return p
