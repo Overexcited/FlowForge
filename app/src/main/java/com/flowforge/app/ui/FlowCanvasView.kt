@@ -454,15 +454,16 @@ class FlowCanvasView(context: Context) : View(context) {
         toSide: ConnectionSide,
     ): Path {
         // --- 1. Square route (v0.2.16 topology) ---
-        // Short stubs so the curve begins bending toward the destination early
-        // instead of a long dead-straight exit along the face normal.
-        val stub = 22f
+        // Stub MUST be larger than obstacle expansion. If stubs land inside
+        // the expanded rects, visibilityRoute fails and falls back to a
+        // straight diagonal through the shapes (what the last screenshots showed).
+        val expand = 40f
+        val stub = expand + 16f // 56 — just outside the padded boxes
         val sourceOut = offsetFromSide(start, fromSide, stub)
         val targetOut = offsetFromSide(end, toSide, stub)
-        // Extra clearance around block corners so the smoothed curve stays clear.
         val obstacles = obstacleRects(a.id, b.id) + listOf(
-            expandedElementRect(a, 48f),
-            expandedElementRect(b, 48f)
+            expandedElementRect(a, expand),
+            expandedElementRect(b, expand)
         )
         val middle = visibilityRoute(sourceOut, targetOut, obstacles, 0)
         val raw = mutableListOf<PointF>()
@@ -484,21 +485,17 @@ class FlowCanvasView(context: Context) : View(context) {
             return p
         }
 
-        // Bias exit/entry stubs toward the next waypoint so the path leaves
-        // along the face normal briefly, then immediately arcs toward the
-        // destination (no long straight run before the curve starts).
-        if (square.size >= 3) {
+        // Mild bias toward the next waypoint so the curve starts earlier,
+        // without pulling stubs back inside the obstacle padding.
+        if (square.size >= 4) {
             val exit = square[1]
             val next = square[2]
-            square[1] = PointF(
-                exit.x * 0.55f + next.x * 0.45f,
-                exit.y * 0.55f + next.y * 0.45f
-            )
+            square[1] = PointF(exit.x * 0.7f + next.x * 0.3f, exit.y * 0.7f + next.y * 0.3f)
             val entry = square[square.lastIndex - 1]
             val prev = square[square.lastIndex - 2]
             square[square.lastIndex - 1] = PointF(
-                entry.x * 0.55f + prev.x * 0.45f,
-                entry.y * 0.55f + prev.y * 0.45f
+                entry.x * 0.7f + prev.x * 0.3f,
+                entry.y * 0.7f + prev.y * 0.3f
             )
         }
 
