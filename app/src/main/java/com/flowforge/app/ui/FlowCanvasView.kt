@@ -453,19 +453,28 @@ class FlowCanvasView(context: Context) : View(context) {
         fromSide: ConnectionSide,
         toSide: ConnectionSide,
     ): Path {
-        // --- 1. Square route (v0.2.16 topology) ---
-        // Stub MUST be larger than obstacle expansion. If stubs land inside
-        // the expanded rects, visibilityRoute fails and falls back to a
-        // straight diagonal through the shapes (what the last screenshots showed).
-        val expand = 40f
-        val stub = expand + 16f // 56 — just outside the padded boxes
+        // --- 1. Square route ---
+        // Expand AABBs of EVERY element (including source/target and stars/clouds).
+        // Stub is always outside that padding so visibility never starts inside an obstacle.
+        val expand = 44f
+        val stub = expand + 20f // 64
         val sourceOut = offsetFromSide(start, fromSide, stub)
         val targetOut = offsetFromSide(end, toSide, stub)
-        val obstacles = obstacleRects(a.id, b.id) + listOf(
+        val coreObstacles = listOf(
             expandedElementRect(a, expand),
             expandedElementRect(b, expand)
-        )
-        val middle = visibilityRoute(sourceOut, targetOut, obstacles, 0)
+        ) + obstacleRects(a.id, b.id)
+
+        var middle = visibilityRoute(sourceOut, targetOut, coreObstacles, 0)
+
+        // If visibility fell back to a direct segment that still clips a block
+        // (or only returned endpoints), force an around-the-union detour.
+        val direct = middle.size <= 2
+        val directHits = !segmentClear(sourceOut, targetOut, coreObstacles)
+        if (direct || directHits) {
+            middle = forcedDetour(sourceOut, targetOut, a, b, expand)
+        }
+
         val raw = mutableListOf<PointF>()
         raw += start
         raw += sourceOut
@@ -485,22 +494,51 @@ class FlowCanvasView(context: Context) : View(context) {
             return p
         }
 
-        // Mild bias toward the next waypoint so the curve starts earlier,
-        // without pulling stubs back inside the obstacle padding.
+        // Mild early-curve bias (keep stubs outside padding)
         if (square.size >= 4) {
             val exit = square[1]
             val next = square[2]
-            square[1] = PointF(exit.x * 0.7f + next.x * 0.3f, exit.y * 0.7f + next.y * 0.3f)
+            square[1] = PointF(exit.x * 0.75f + next.x * 0.25f, exit.y * 0.75f + next.y * 0.25f)
             val entry = square[square.lastIndex - 1]
             val prev = square[square.lastIndex - 2]
             square[square.lastIndex - 1] = PointF(
-                entry.x * 0.7f + prev.x * 0.3f,
-                entry.y * 0.7f + prev.y * 0.3f
+                entry.x * 0.75f + prev.x * 0.25f,
+                entry.y * 0.75f + prev.y * 0.25f
             )
         }
 
-        // --- 2. Absolute smooth: more Chaikin passes → smoother continuous curve ---
+        // --- 2. Chaikin → continuous curve ---
         return pathFromSmoothPoints(chaikinSmooth(square, passes = 12))
+    }
+
+    /**
+     * Guaranteed outside path when visibility fails: route around the shorter
+     * side of the union bounding box of A and B.
+     */
+    private fun forcedDetour(
+        sourceOut: PointF,
+        targetOut: PointF,
+        a: FlowElement,
+        b: FlowElement,
+        expand: Float,
+    ): List<PointF> {
+        val L = min(a.x, b.x) - expand
+        val R = max(a.x + a.width, b.x + b.width) + expand
+        val T = min(a.y, b.y) - expand
+        val B = max(a.y + a.height, b.y + b.height) + expand
+        val midX = (sourceOut.x + targetOut.x) / 2f
+        val midY = (sourceOut.y + targetOut.y) / 2f
+        // Prefer the side with less travel
+        val goLeft = abs(midX - L) <= abs(R - midX)
+        val goTop = abs(midY - T) <= abs(B - midY)
+        // Vertical separation dominant → side route; else top/bottom route
+        return if (abs(sourceOut.y - targetOut.y) >= abs(sourceOut.x - targetOut.x)) {
+            val x = if (goLeft) L else R
+            listOf(sourceOut, PointF(x, sourceOut.y), PointF(x, targetOut.y), targetOut)
+        } else {
+            val y = if (goTop) T else B
+            listOf(sourceOut, PointF(sourceOut.x, y), PointF(targetOut.x, y), targetOut)
+        }
     }
 
     /**
