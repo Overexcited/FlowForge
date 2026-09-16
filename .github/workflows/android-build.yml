@@ -1,4 +1,4 @@
-name: Build FlowForge v0.2.16
+name: Build FlowForge v0.2.20
 on:
   push:
   pull_request:
@@ -16,7 +16,7 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4
         with:
           packages: platform-tools
 
