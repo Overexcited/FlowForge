@@ -287,10 +287,18 @@ class FlowCanvasView(context: Context) : View(context) {
     private fun drawConnection(c:Canvas,con:FlowConnection){
         val a=document.elements.firstOrNull{it.id==con.fromId}?:return;val b=document.elements.firstOrNull{it.id==con.toId}?:return
         val pair=document.connections.filter{(it.fromId==con.fromId&&it.toId==con.toId)||(it.fromId==con.toId&&it.toId==con.fromId)}.sortedBy{it.id};val idx=pair.indexOfFirst{it.id==con.id}.coerceAtLeast(0)
-        // Always resolve concrete sides (AUTO → preferred opposite faces) so every
-        // connector uses the smooth outward router — never the old straight diagonal.
-        val (fromSide, toSide, p1, p2) = resolveConnectionGeometry(a, b, con, idx, pair.size)
-        val path = buildDynamicRoutedPath(a, b, p1, p2, fromSide, toSide)
+        val auto=connectionEndpoints(a,b,idx,pair.size)
+        val autoSides=connectionSides(a,b,idx)
+        val effectiveFromSide=if(con.fromSide==ConnectionSide.AUTO)autoSides.first else con.fromSide
+        val effectiveToSide=if(con.toSide==ConnectionSide.AUTO)autoSides.second else con.toSide
+        val p1=if(con.fromSide==ConnectionSide.AUTO)auto.first else faceEndpoint(a,con.fromSide,idx,pair.size,sideLength(b,con.toSide))
+        val p2=if(con.toSide==ConnectionSide.AUTO)auto.second else faceEndpoint(b,con.toSide,idx,pair.size,sideLength(a,con.fromSide))
+        // Every connector uses the same obstacle-aware router, including AUTO
+        // connections.  The old AUTO path was a freehand Bezier between the two
+        // faces, so it could pass straight through another block.  Routing first
+        // and smoothing second gives us a continuous curve that still respects
+        // the clearance around every block.
+        val path=buildDynamicRoutedPath(a,b,p1,p2,effectiveFromSide,effectiveToSide)
         paint.style=Paint.Style.STROKE;paint.strokeWidth=if(con.id==selectedConnectionId)7f else connectionWidth(con);paint.color=if(con.id==selectedConnectionId)0xff2563eb.toInt() else con.color
         paint.pathEffect=when(con.lineStyle){LineStyle.DASHED->DashPathEffect(floatArrayOf(18f,12f),0f);LineStyle.DOTTED->DashPathEffect(floatArrayOf(4f,10f),0f);else->null};c.drawPath(path,paint);paint.pathEffect=null
         if(con.arrowType==ArrowType.REPEATED)drawRepeatedArrows(c,path)else if(con.arrowType!=ArrowType.NONE)drawConnectionArrows(c,path,con.arrowType)
@@ -304,31 +312,24 @@ class FlowCanvasView(context: Context) : View(context) {
             lines.forEachIndexed{i,line->c.drawText(line,mid.x+6-textPaint.measureText(line)/2f,base+i*lineH,textPaint)}
         };if(con.notes.isNotBlank())drawBadge(c,mid.x+12,mid.y-18,false)
     }
-
-    private data class ConnGeom(val fromSide: ConnectionSide, val toSide: ConnectionSide, val p1: PointF, val p2: PointF)
-
-    private fun resolveConnectionGeometry(a: FlowElement, b: FlowElement, con: FlowConnection, idx: Int, count: Int): ConnGeom {
-        val auto = connectionEndpoints(a, b, idx, count)
-        val fromSide = if (con.fromSide == ConnectionSide.AUTO) endpointSide(a, auto.first) else con.fromSide
-        val toSide = if (con.toSide == ConnectionSide.AUTO) endpointSide(b, auto.second) else con.toSide
-        val p1 = if (con.fromSide == ConnectionSide.AUTO) auto.first
-                 else faceEndpoint(a, fromSide, idx, count, sideLength(b, toSide))
-        val p2 = if (con.toSide == ConnectionSide.AUTO) auto.second
-                 else faceEndpoint(b, toSide, idx, count, sideLength(a, fromSide))
-        return ConnGeom(fromSide, toSide, p1, p2)
-    }
     private fun preferredSide(a:FlowElement,b:FlowElement):ConnectionSide{val dx=b.x+b.width/2f-(a.x+a.width/2f);val dy=b.y+b.height/2f-(a.y+a.height/2f);return if(abs(dy)>=abs(dx)){if(dy>=0)ConnectionSide.BOTTOM else ConnectionSide.TOP}else{if(dx>=0)ConnectionSide.RIGHT else ConnectionSide.LEFT}}
     private fun distributedSide(preferred:ConnectionSide,index:Int):ConnectionSide{if(preferred==ConnectionSide.AUTO)return ConnectionSide.AUTO;val order=when(preferred){ConnectionSide.TOP->arrayOf(ConnectionSide.TOP,ConnectionSide.RIGHT,ConnectionSide.LEFT,ConnectionSide.BOTTOM);ConnectionSide.RIGHT->arrayOf(ConnectionSide.RIGHT,ConnectionSide.BOTTOM,ConnectionSide.TOP,ConnectionSide.LEFT);ConnectionSide.BOTTOM->arrayOf(ConnectionSide.BOTTOM,ConnectionSide.LEFT,ConnectionSide.RIGHT,ConnectionSide.TOP);ConnectionSide.LEFT->arrayOf(ConnectionSide.LEFT,ConnectionSide.TOP,ConnectionSide.BOTTOM,ConnectionSide.RIGHT);else->arrayOf(ConnectionSide.TOP)};return order[index%order.size]}
-    private fun connectionEndpoints(a: FlowElement, b: FlowElement, index: Int, count: Int): Pair<PointF, PointF> {
-        val pref = preferredSide(a, b)
-        val sa = distributedSide(pref, index)
-        val sb = when (sa) {
-            ConnectionSide.TOP -> ConnectionSide.BOTTOM
-            ConnectionSide.RIGHT -> ConnectionSide.LEFT
-            ConnectionSide.BOTTOM -> ConnectionSide.TOP
-            ConnectionSide.LEFT -> ConnectionSide.RIGHT
-            else -> ConnectionSide.AUTO
+    private fun connectionSides(a: FlowElement, b: FlowElement, index: Int): Pair<ConnectionSide,ConnectionSide> {
+        val sa=distributedSide(preferredSide(a,b),index)
+        val sb=when(sa){
+            ConnectionSide.TOP->ConnectionSide.BOTTOM
+            ConnectionSide.RIGHT->ConnectionSide.LEFT
+            ConnectionSide.BOTTOM->ConnectionSide.TOP
+            ConnectionSide.LEFT->ConnectionSide.RIGHT
+            else->ConnectionSide.AUTO
         }
+        return sa to sb
+    }
+
+    private fun connectionEndpoints(a: FlowElement, b: FlowElement, index: Int, count: Int): Pair<PointF, PointF> {
+        val sides=connectionSides(a,b,index)
+        val sa=sides.first
+        val sb=sides.second
         fun point(e: FlowElement, side: ConnectionSide, offset: Float): PointF =
             shapeBoundaryEndpoint(e,side,offset)
         val lane = if (count <= 1) 0f else {
@@ -438,234 +439,92 @@ class FlowCanvasView(context: Context) : View(context) {
         return shapeBoundaryEndpoint(e,side,offset)
     }
 
-    private fun adaptiveStub(distance: Float): Float =
-        (16f + (distance * 0.05f).coerceIn(0f, 20f)).coerceIn(14f, 36f)
-
-    private fun normalOf(side: ConnectionSide): PointF = when (side) {
-        ConnectionSide.TOP -> PointF(0f, -1f)
-        ConnectionSide.RIGHT -> PointF(1f, 0f)
-        ConnectionSide.BOTTOM -> PointF(0f, 1f)
-        ConnectionSide.LEFT -> PointF(-1f, 0f)
-        else -> PointF(0f, 0f)
-    }
-
-    /**
-     * True only when the exit face points toward the entry face *and* the
-     * relative placement of the two boxes makes a direct outward curve sensible
-     * (e.g. bottom of upper → top of lower).  Prevents TOP→BOTTOM diagonals that
-     * cut straight through both shapes.
-     */
-    private fun isProperlyFacing(
-        a: FlowElement, b: FlowElement,
-        fromSide: ConnectionSide, toSide: ConnectionSide,
-        start: PointF, end: PointF,
-    ): Boolean {
-        val acx = a.x + a.width / 2f
-        val acy = a.y + a.height / 2f
-        val bcx = b.x + b.width / 2f
-        val bcy = b.y + b.height / 2f
-        return when {
-            fromSide == ConnectionSide.BOTTOM && toSide == ConnectionSide.TOP ->
-                acy < bcy && start.y < end.y
-            fromSide == ConnectionSide.TOP && toSide == ConnectionSide.BOTTOM ->
-                acy > bcy && start.y > end.y
-            fromSide == ConnectionSide.RIGHT && toSide == ConnectionSide.LEFT ->
-                acx < bcx && start.x < end.x
-            fromSide == ConnectionSide.LEFT && toSide == ConnectionSide.RIGHT ->
-                acx > bcx && start.x > end.x
-            else -> false
-        }
-    }
-
-    /**
-     * Smooth routing that always leaves along the face normal (short stub) so
-     * the path never cuts through source/target.  Facing pairs get a single
-     * cubic; everything else gets an orthogonal wrap with large rounded corners
-     * (matches the hand-drawn pipe-style mock-up).
-     */
     private fun buildDynamicRoutedPath(
-        a: FlowElement,
-        b: FlowElement,
-        start: PointF,
-        end: PointF,
-        fromSide: ConnectionSide,
-        toSide: ConnectionSide,
-    ): Path {
-        val dist = hypot(end.x - start.x, end.y - start.y)
-        val stub = adaptiveStub(dist)
-        val sourceOut = offsetFromSide(start, fromSide, stub)
-        val targetOut = offsetFromSide(end, toSide, stub)
-        val obstacles = obstacleRects(a.id, b.id)
-
-        if (isProperlyFacing(a, b, fromSide, toSide, start, end) &&
-            segmentClear(sourceOut, targetOut, obstacles)
-        ) {
-            return buildFacingCubic(start, end, fromSide, toSide, stub, dist)
-        }
-
-        // Orthogonal wrap that always starts/ends on the face normals.
-        val waypoints = buildOrthogonalWaypoints(sourceOut, targetOut, fromSide, toSide, a, b)
-        val raw = mutableListOf<PointF>()
-        raw += start
-        raw += sourceOut
-        raw.addAll(waypoints)
-        raw += targetOut
-        raw += end
-        val cleaned = mutableListOf<PointF>()
-        raw.forEach {
-            if (cleaned.isEmpty() || hypot(it.x - cleaned.last().x, it.y - cleaned.last().y) > 1.5f)
-                cleaned += it
-        }
-        // If visibility can shorten without crossing others, prefer that.
-        if (cleaned.size >= 4) {
-            val middle = visibilityRoute(sourceOut, targetOut, obstacles, 0)
-            if (middle.size <= cleaned.size - 2) {
-                val alt = mutableListOf<PointF>()
-                alt += start
-                alt += sourceOut
-                alt.addAll(middle.drop(1).dropLast(1))
-                alt += targetOut
-                alt += end
-                val altClean = mutableListOf<PointF>()
-                alt.forEach {
-                    if (altClean.isEmpty() || hypot(it.x - altClean.last().x, it.y - altClean.last().y) > 1.5f)
-                        altClean += it
-                }
-                return buildSmoothRoutePath(altClean)
-            }
-        }
-        return buildSmoothRoutePath(cleaned)
+        a:FlowElement,
+        b:FlowElement,
+        start:PointF,
+        end:PointF,
+        fromSide:ConnectionSide,
+        toSide:ConnectionSide,
+    ):Path {
+        // start/end are the actual automatically distributed attachment points
+        // on the selected faces.
+        val sourceOut=offsetFromSide(start,fromSide,64f)
+        val targetOut=offsetFromSide(end,toSide,64f)
+        val obstacles=obstacleRects(a.id,b.id)+listOf(
+            expandedElementRect(a,48f),
+            expandedElementRect(b,48f)
+        )
+        // Recalculate the route from the CURRENT block geometry every time the
+        // canvas is drawn.  Stored routePoints are deliberately not used here: a
+        // moved block must never leave an old elbow pinned to the canvas.
+        val middle=visibilityRoute(sourceOut,targetOut,obstacles,0)
+        val raw=mutableListOf<PointF>()
+        raw+=start
+        raw+=sourceOut
+        raw.addAll(middle.drop(1).dropLast(1))
+        raw+=targetOut
+        raw+=end
+        val cleaned=mutableListOf<PointF>()
+        raw.forEach { if(cleaned.isEmpty() || hypot(it.x-cleaned.last().x,it.y-cleaned.last().y)>1f) cleaned+=it }
+        return buildSmoothRoutePath(cleaned, obstacles)
     }
 
-    /**
-     * Minimal orthogonal corridor that stays outside both boxes.
-     * Produces the gentle U / L / S shapes in the hand mock-up.
-     */
-    private fun buildOrthogonalWaypoints(
-        sourceOut: PointF,
-        targetOut: PointF,
-        fromSide: ConnectionSide,
-        toSide: ConnectionSide,
-        a: FlowElement,
-        b: FlowElement,
-    ): List<PointF> {
-        val margin = 28f
-        val aR = RectF(a.x - margin, a.y - margin, a.x + a.width + margin, a.y + a.height + margin)
-        val bR = RectF(b.x - margin, b.y - margin, b.x + b.width + margin, b.y + b.height + margin)
+    private fun buildSmoothRoutePath(points:List<PointF>, obs:List<RectF>):Path {
+        if(points.isEmpty()) return Path()
+        if(points.size==2) return Path().apply { moveTo(points[0].x,points[0].y); lineTo(points[1].x,points[1].y) }
 
-        // Same-side exit: go out, travel along the shared axis past both boxes, then in.
-        if (fromSide == toSide) {
-            return when (fromSide) {
-                ConnectionSide.TOP, ConnectionSide.BOTTOM -> {
-                    val y = if (fromSide == ConnectionSide.TOP)
-                        min(sourceOut.y, targetOut.y) - 24f
-                    else
-                        max(sourceOut.y, targetOut.y) + 24f
-                    listOf(PointF(sourceOut.x, y), PointF(targetOut.x, y))
-                }
-                else -> {
-                    val x = if (fromSide == ConnectionSide.LEFT)
-                        min(sourceOut.x, targetOut.x) - 24f
-                    else
-                        max(sourceOut.x, targetOut.x) + 24f
-                    listOf(PointF(x, sourceOut.y), PointF(x, targetOut.y))
-                }
-            }
+        // Build the same tangent-preserving curve repeatedly with a shrinking
+        // radius until the rendered curve is itself clear of every obstacle.
+        // This is important: a safe polyline is not enough if the smoothing step
+        // bows the curve back into a nearby block.
+        var radius=30f
+        repeat(7){
+            val candidate=roundedRouteCandidate(points,radius)
+            if(pathClear(candidate,obs)) return candidate
+            radius*=.55f
         }
-
-        // Adjacent sides: one elbow at the outer corner.
-        val horizontalFirst = fromSide == ConnectionSide.LEFT || fromSide == ConnectionSide.RIGHT
-        return if (horizontalFirst) {
-            listOf(PointF(targetOut.x, sourceOut.y))
-        } else {
-            listOf(PointF(sourceOut.x, targetOut.y))
-        }
+        // The visibility route itself is already obstacle-safe.  Keep a tiny
+        // radius as the final fallback rather than ever drawing an elbow.
+        return roundedRouteCandidate(points,1.5f)
     }
 
-    /** Smooth cubic when exit and entry normals face each other properly. */
-    private fun buildFacingCubic(
-        start: PointF,
-        end: PointF,
-        fromSide: ConnectionSide,
-        toSide: ConnectionSide,
-        stub: Float,
-        dist: Float,
-    ): Path {
-        val n1 = normalOf(fromSide)
-        val n2 = normalOf(toSide)
-        // Control distance produces a gentle S/C; kept modest so close blocks
-        // do not balloon, far blocks still look curved not straight.
-        val ctrl = (dist * 0.42f).coerceIn(stub * 1.8f, 140f)
-        val c1 = PointF(start.x + n1.x * ctrl, start.y + n1.y * ctrl)
-        val c2 = PointF(end.x + n2.x * ctrl, end.y + n2.y * ctrl)
-        val p = Path()
-        p.moveTo(start.x, start.y)
-        p.cubicTo(c1.x, c1.y, c2.x, c2.y, end.x, end.y)
+    private fun roundedRouteCandidate(points:List<PointF>,radius:Float):Path {
+        val p=Path()
+        p.moveTo(points[0].x,points[0].y)
+        for(i in 1 until points.lastIndex){
+            val prev=points[i-1]; val cur=points[i]; val next=points[i+1]
+            val inLen=hypot(cur.x-prev.x,cur.y-prev.y)
+            val outLen=hypot(next.x-cur.x,next.y-cur.y)
+            if(inLen<1f || outLen<1f){ p.lineTo(cur.x,cur.y); continue }
+            val r=min(radius,min(inLen,outLen)*.30f)
+            val before=PointF(cur.x+(prev.x-cur.x)*r/inLen,cur.y+(prev.y-cur.y)*r/inLen)
+            val after=PointF(cur.x+(next.x-cur.x)*r/outLen,cur.y+(next.y-cur.y)*r/outLen)
+            p.lineTo(before.x,before.y)
+            p.quadTo(cur.x,cur.y,after.x,after.y)
+        }
+        p.lineTo(points.last().x,points.last().y)
         return p
     }
 
-    private fun buildSmoothRoutePath(points: List<PointF>): Path {
-        val p = Path()
-        if (points.isEmpty()) return p
-        p.moveTo(points[0].x, points[0].y)
-        if (points.size == 2) {
-            p.lineTo(points[1].x, points[1].y)
-            return p
+    private fun pathClear(path:Path,obs:List<RectF>):Boolean {
+        val m=PathMeasure(path,false)
+        if(m.length<=0f) return true
+        val pos=FloatArray(2)
+        var previous:PointF?=null
+        val samples=max(32,(m.length/10f).roundToInt())
+        for(i in 0..samples){
+            m.getPosTan(m.length*i.toFloat()/samples,pos,null)
+            val current=PointF(pos[0],pos[1])
+            if(previous!=null && !segmentClear(previous!!,current,obs)) return false
+            previous=current
         }
-        // Large radius → continuous pipe bends like the hand mock-up.
-        val radius = 56f
-        for (i in 1 until points.lastIndex) {
-            val prev = points[i - 1]
-            val cur = points[i]
-            val next = points[i + 1]
-            val inLen = hypot(cur.x - prev.x, cur.y - prev.y)
-            val outLen = hypot(next.x - cur.x, next.y - cur.y)
-            if (inLen < 1f || outLen < 1f) {
-                p.lineTo(cur.x, cur.y)
-                continue
-            }
-            val r = min(radius, min(inLen, outLen) * 0.5f)
-            val before = PointF(
-                cur.x + (prev.x - cur.x) * r / inLen,
-                cur.y + (prev.y - cur.y) * r / inLen
-            )
-            val after = PointF(
-                cur.x + (next.x - cur.x) * r / outLen,
-                cur.y + (next.y - cur.y) * r / outLen
-            )
-            p.lineTo(before.x, before.y)
-            p.quadTo(cur.x, cur.y, after.x, after.y)
-        }
-        p.lineTo(points.last().x, points.last().y)
-        return p
+        return true
     }
 
     private fun buildRoutedPath(points:List<PointF>):Path{val p=Path();if(points.isEmpty())return p;if(points.size==1){p.moveTo(points[0].x,points[0].y);return p};val radius=28f;p.moveTo(points[0].x,points[0].y);for(i in 1 until points.lastIndex+1){val prev=points[i-1];val cur=points[i];val next=if(i<points.lastIndex)points[i+1]else null;if(next==null){p.lineTo(cur.x,cur.y);break};val inLen=hypot(cur.x-prev.x,cur.y-prev.y);val outLen=hypot(next.x-cur.x,next.y-cur.y);if(inLen<1f||outLen<1f){p.lineTo(cur.x,cur.y);continue};val r=min(radius,min(inLen,outLen)*.38f);val before=PointF(cur.x+(prev.x-cur.x)*r/inLen,cur.y+(prev.y-cur.y)*r/inLen);val after=PointF(cur.x+(next.x-cur.x)*r/outLen,cur.y+(next.y-cur.y)*r/outLen);p.lineTo(before.x,before.y);p.quadTo(cur.x,cur.y,after.x,after.y)};return p}
     private fun pathMidpoint(path:Path):PointF{val m=PathMeasure(path,false);if(m.length<=0f)return PointF();val pos=FloatArray(2);m.getPosTan(m.length/2f,pos,null);return PointF(pos[0],pos[1])}
-    private fun drawConnectionArrows(c:Canvas,path:Path,type:ArrowType){
-        val m=PathMeasure(path,false)
-        if(m.length<=1f)return
-        val pos=FloatArray(2);val tan=FloatArray(2)
-        fun sample(d:Float):Pair<PointF,PointF>{
-            m.getPosTan(d.coerceIn(0f,m.length),pos,tan)
-            return PointF(pos[0],pos[1]) to PointF(tan[0],tan[1])
-        }
-        // Pull-back is only enough to seat the arrow head; the path already ends
-        // on the shape outline, so a smaller offset keeps the tip flush.
-        val tip=5.5f
-        val end=sample(m.length)
-        val start=sample(min(18f,m.length))
-        when(type){
-            ArrowType.END->drawArrow(c,end.first.x-end.second.x*tip,end.first.y-end.second.y*tip,end.first.x,end.first.y,ArrowType.END)
-            ArrowType.BOTH->{
-                drawArrow(c,end.first.x-end.second.x*tip,end.first.y-end.second.y*tip,end.first.x,end.first.y,ArrowType.END)
-                drawArrow(c,start.first.x+start.second.x*tip,start.first.y+start.second.y*tip,start.first.x,start.first.y,ArrowType.END)
-            }
-            ArrowType.CIRCLE->{paint.style=Paint.Style.STROKE;paint.strokeWidth=3f;c.drawCircle(end.first.x,end.first.y,7f,paint)}
-            ArrowType.DIAMOND->drawArrow(c,end.first.x-end.second.x*tip,end.first.y-end.second.y*tip,end.first.x,end.first.y,ArrowType.DIAMOND)
-            else->Unit
-        }
-    }
+    private fun drawConnectionArrows(c:Canvas,path:Path,type:ArrowType){val m=PathMeasure(path,false);if(m.length<=1f)return;val pos=FloatArray(2);val tan=FloatArray(2);fun sample(d:Float):Pair<PointF,PointF>{m.getPosTan(d.coerceIn(0f,m.length),pos,tan);return PointF(pos[0],pos[1]) to PointF(tan[0],tan[1])};val end=sample(m.length);val start=sample(min(20f,m.length));when(type){ArrowType.END->drawArrow(c,end.first.x-end.second.x*8f,end.first.y-end.second.y*8f,end.first.x,end.first.y,ArrowType.END);ArrowType.BOTH->{drawArrow(c,end.first.x-end.second.x*8f,end.first.y-end.second.y*8f,end.first.x,end.first.y,ArrowType.END);drawArrow(c,start.first.x+start.second.x*8f,start.first.y+start.second.y*8f,start.first.x,start.first.y,ArrowType.END)};ArrowType.CIRCLE->{paint.style=Paint.Style.STROKE;paint.strokeWidth=3f;c.drawCircle(end.first.x,end.first.y,7f,paint)};ArrowType.DIAMOND->drawArrow(c,end.first.x-end.second.x*8f,end.first.y-end.second.y*8f,end.first.x,end.first.y,ArrowType.DIAMOND);else->Unit}}
     private fun drawArrow(c:Canvas,x1:Float,y1:Float,x2:Float,y2:Float,type:ArrowType){val ang=atan2(y2-y1,x2-x1);val len=20f;val p=Path();if(type==ArrowType.DIAMOND){p.moveTo(x2,y2);p.lineTo(x2-len*.8f*cos(ang-.5f),y2-len*.8f*sin(ang-.5f));p.lineTo(x2-len*cos(ang),y2-len*sin(ang));p.lineTo(x2-len*.8f*cos(ang+.5f),y2-len*.8f*sin(ang+.5f));p.close()}else{p.moveTo(x2,y2);p.lineTo(x2-len*cos(ang-.5f),y2-len*sin(ang-.5f));p.lineTo(x2-len*cos(ang+.5f),y2-len*sin(ang+.5f));p.close()};paint.style=Paint.Style.FILL;paint.color=if(type==ArrowType.DIAMOND)paint.color else paint.color;c.drawPath(p,paint)}
     private fun drawRepeatedArrows(c:Canvas,path:Path){val m=PathMeasure(path,false);val pos=FloatArray(2);val tan=FloatArray(2);var d=55f;while(d<m.length-12f){if(m.getPosTan(d,pos,tan))drawArrow(c,pos[0]-tan[0]*8f,pos[1]-tan[1]*8f,pos[0],pos[1],ArrowType.END);d+=70f}}
 
@@ -683,9 +542,7 @@ class FlowCanvasView(context: Context) : View(context) {
     private fun obstacleRects(a:String,b:String):List<RectF> =
         document.elements
             .filter { it.id != a && it.id != b }
-            // Modest padding only on *other* blocks.  Source/target are never
-            // included, which eliminates the last-moment outward hook.
-            .map { RectF(it.x - 28f, it.y - 28f, it.x + it.width + 28f, it.y + it.height + 28f) }
+            .map { RectF(it.x - 40f, it.y - 40f, it.x + it.width + 40f, it.y + it.height + 40f) }
 
     private fun expandedElementRect(e:FlowElement, margin:Float = 40f):RectF =
         RectF(e.x - margin, e.y - margin, e.x + e.width + margin, e.y + e.height + margin)
@@ -717,15 +574,16 @@ class FlowCanvasView(context: Context) : View(context) {
     private fun routeConnection(a:FlowElement,b:FlowElement,fromSide:ConnectionSide,toSide:ConnectionSide,gesture:List<PointF>):List<PointF>{
         val start=shapeBoundaryEndpoint(a,fromSide,0f)
         val end=shapeBoundaryEndpoint(b,toSide,0f)
-        val dist=hypot(end.x-start.x,end.y-start.y)
-        val stub=adaptiveStub(dist)
-        val sourceOut=offsetFromSide(start,fromSide,stub)
-        val targetOut=offsetFromSide(end,toSide,stub)
+        val sourceOut=offsetFromSide(start,fromSide,64f)
+        val targetOut=offsetFromSide(end,toSide,64f)
 
-        // Finger path only chooses the faces; final geometry is recomputed cleanly.
-        // Source/target are excluded from obstacles so the last segment stays on
-        // the face normal and the arrow lands on the outline.
-        val obstacles=obstacleRects(a.id,b.id)
+        // The finger path is intentionally used only to choose the two faces.
+        // Once the finger is released, the connector is regenerated cleanly so
+        // accidental wiggles never become ugly permanent routing waypoints.
+        val obstacles=obstacleRects(a.id,b.id)+listOf(
+            expandedElementRect(a,48f),
+            expandedElementRect(b,48f)
+        )
 
         val middle=visibilityRoute(sourceOut,targetOut,obstacles,gestureBias(gesture))
         val raw=mutableListOf<PointF>()
@@ -1027,25 +885,7 @@ class FlowCanvasView(context: Context) : View(context) {
         return Handle.NONE
     }
     private fun world(x:Float,y:Float)=PointF((x-panX)/scale,(y-panY)/scale);private fun selectedElement()=document.elements.firstOrNull{it.id==selectedElementId};private fun hitElement(x:Float,y:Float)=document.elements.asReversed().firstOrNull{hitShape(it,x,y)};private fun hitShape(e:FlowElement,x:Float,y:Float):Boolean{val r=RectF(e.x,e.y,e.x+e.width,e.y+e.height);return when(e.shape){ShapeType.DIAMOND->abs(x-r.centerX())/r.width()+abs(y-r.centerY())/r.height()<=.5f;else->r.contains(x,y)}}
-    private fun hitConnection(x:Float,y:Float):FlowConnection?{
-        val threshold=maxOf(22f,24f/scale)
-        return document.connections.asReversed().firstOrNull{con->
-            val a=document.elements.firstOrNull{it.id==con.fromId}?:return@firstOrNull false
-            val b=document.elements.firstOrNull{it.id==con.toId}?:return@firstOrNull false
-            val pair=document.connections.filter{(it.fromId==con.fromId&&it.toId==con.toId)||(it.fromId==con.toId&&it.toId==con.fromId)}.sortedBy{it.id}
-            val idx=pair.indexOfFirst{it.id==con.id}.coerceAtLeast(0)
-            val geom=resolveConnectionGeometry(a,b,con,idx,pair.size)
-            val path=buildDynamicRoutedPath(a,b,geom.p1,geom.p2,geom.fromSide,geom.toSide)
-            val m=PathMeasure(path,false)
-            val pos=FloatArray(2)
-            var d=0f
-            while(d<=m.length){
-                if(m.getPosTan(d,pos,null)&&hypot(x-pos[0],y-pos[1])<=threshold)return@firstOrNull true
-                d+=maxOf(6f,threshold/2f)
-            }
-            false
-        }
-    }
+    private fun hitConnection(x:Float,y:Float):FlowConnection?{val threshold=maxOf(22f,24f/scale);return document.connections.asReversed().firstOrNull{con->val a=document.elements.firstOrNull{it.id==con.fromId}?:return@firstOrNull false;val b=document.elements.firstOrNull{it.id==con.toId}?:return@firstOrNull false;val pair=document.connections.filter{(it.fromId==con.fromId&&it.toId==con.toId)||(it.fromId==con.toId&&it.toId==con.fromId)}.sortedBy{it.id};val idx=pair.indexOfFirst{it.id==con.id}.coerceAtLeast(0);val auto=connectionEndpoints(a,b,idx,pair.size);val p1=if(con.fromSide==ConnectionSide.AUTO)auto.first else faceEndpoint(a,con.fromSide,idx,pair.size,sideLength(b,con.toSide));val p2=if(con.toSide==ConnectionSide.AUTO)auto.second else faceEndpoint(b,con.toSide,idx,pair.size,sideLength(a,con.fromSide));val autoSides=connectionSides(a,b,idx);val effectiveFromSide=if(con.fromSide==ConnectionSide.AUTO)autoSides.first else con.fromSide;val effectiveToSide=if(con.toSide==ConnectionSide.AUTO)autoSides.second else con.toSide;val path=buildDynamicRoutedPath(a,b,p1,p2,effectiveFromSide,effectiveToSide);val m=PathMeasure(path,false);val pos=FloatArray(2);var d=0f;while(d<=m.length){if(m.getPosTan(d,pos,null)&&hypot(x-pos[0],y-pos[1])<=threshold)return@firstOrNull true;d+=maxOf(6f,threshold/2f)};false}}
     private fun wrap(s:String,max:Int):List<String>{
         if(s.isEmpty())return listOf("")
         val out=mutableListOf<String>()
