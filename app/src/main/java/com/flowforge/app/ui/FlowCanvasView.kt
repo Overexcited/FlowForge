@@ -538,19 +538,19 @@ class FlowCanvasView(context: Context) : View(context) {
         if (fromSide == toSide) {
             return when (fromSide) {
                 ConnectionSide.TOP -> {
-                    val y = min(sourceOut.y, targetOut.y, T)
+                    val y = minOf(sourceOut.y, targetOut.y, T)
                     listOf(sourceOut, PointF(sourceOut.x, y), PointF(targetOut.x, y), targetOut)
                 }
                 ConnectionSide.BOTTOM -> {
-                    val y = max(sourceOut.y, targetOut.y, Btm)
+                    val y = maxOf(sourceOut.y, targetOut.y, Btm)
                     listOf(sourceOut, PointF(sourceOut.x, y), PointF(targetOut.x, y), targetOut)
                 }
                 ConnectionSide.LEFT -> {
-                    val x = min(sourceOut.x, targetOut.x, L)
+                    val x = minOf(sourceOut.x, targetOut.x, L)
                     listOf(sourceOut, PointF(x, sourceOut.y), PointF(x, targetOut.y), targetOut)
                 }
                 else -> {
-                    val x = max(sourceOut.x, targetOut.x, R)
+                    val x = maxOf(sourceOut.x, targetOut.x, R)
                     listOf(sourceOut, PointF(x, sourceOut.y), PointF(x, targetOut.y), targetOut)
                 }
             }
