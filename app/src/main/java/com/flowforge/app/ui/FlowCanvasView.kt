@@ -725,18 +725,16 @@ class FlowCanvasView(context: Context) : View(context) {
     }
 
     private fun routeConnection(a:FlowElement,b:FlowElement,fromSide:ConnectionSide,toSide:ConnectionSide,gesture:List<PointF>):List<PointF>{
+        // Gesture only chooses faces; the drawn path is always recomputed by
+        // buildDynamicRoutedPath.  Return a simple stub pair for any caller that
+        // still expects waypoints.
         val start=shapeBoundaryEndpoint(a,fromSide,0f)
         val end=shapeBoundaryEndpoint(b,toSide,0f)
-        val dist=hypot(end.x-start.x,end.y-start.y)
-        val stub=adaptiveStub(dist)
+        val dist=hypot(end.x-start.x,end.y-start.y).coerceAtLeast(1f)
+        val stub=(16f+(dist*0.05f).coerceIn(0f,16f)).coerceIn(14f,32f)
         val sourceOut=offsetFromSide(start,fromSide,stub)
         val targetOut=offsetFromSide(end,toSide,stub)
-
-        // Finger path only chooses the faces; final geometry is recomputed cleanly.
-        // Source/target are excluded from obstacles so the last segment stays on
-        // the face normal and the arrow lands on the outline.
         val obstacles=obstacleRects(a.id,b.id)
-
         val middle=visibilityRoute(sourceOut,targetOut,obstacles,gestureBias(gesture))
         val raw=mutableListOf<PointF>()
         raw+=start
@@ -744,7 +742,6 @@ class FlowCanvasView(context: Context) : View(context) {
         raw.addAll(middle.drop(1).dropLast(1))
         raw+=targetOut
         raw+=end
-
         val cleaned=mutableListOf<PointF>()
         for(pt in raw){
             if(cleaned.isEmpty() || hypot(pt.x-cleaned.last().x,pt.y-cleaned.last().y)>1f) cleaned+=pt
