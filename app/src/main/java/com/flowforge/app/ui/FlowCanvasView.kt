@@ -439,7 +439,7 @@ class FlowCanvasView(context: Context) : View(context) {
     }
 
     private fun adaptiveStub(distance: Float): Float =
-        (12f + (distance * 0.03f).coerceIn(0f, 12f)).coerceIn(10f, 24f)
+        (14f + (distance * 0.04f).coerceIn(0f, 14f)).coerceIn(12f, 28f)
 
     private fun normalOf(side: ConnectionSide): PointF = when (side) {
         ConnectionSide.TOP -> PointF(0f, -1f)
@@ -450,8 +450,11 @@ class FlowCanvasView(context: Context) : View(context) {
     }
 
     /**
-     * Pure smooth-curve routing — no elbows, no path through shapes.
-     * Paths hug shapes tightly like the hand mock-up (short stubs, modest loops).
+     * Smooth curve routing with forced face-normal entry/exit.
+     *
+     * Critical: the path always leaves along the start-face outward normal and
+     * always arrives along the end-face outward normal.  No reverse hooks at
+     * the attachments.  Middle section curves outside both boxes.
      */
     private fun buildDynamicRoutedPath(
         a: FlowElement,
@@ -465,14 +468,15 @@ class FlowCanvasView(context: Context) : View(context) {
         val stub = adaptiveStub(dist)
         val n1 = normalOf(fromSide)
         val n2 = normalOf(toSide)
+        // Outer stub points — path must pass through these along the normals.
         val sourceOut = PointF(start.x + n1.x * stub, start.y + n1.y * stub)
         val targetOut = PointF(end.x + n2.x * stub, end.y + n2.y * stub)
 
         if (isProperlyFacing(a, b, fromSide, toSide) &&
             segmentClear(sourceOut, targetOut, obstacleRects(a.id, b.id))
         ) {
-            // Facing: single cubic, control length ~1/3 separation (tight S/C).
-            val ctrl = (dist * 0.33f).coerceIn(stub * 1.5f, 90f)
+            // Facing: one cubic whose controls lie on the outward normals only.
+            val ctrl = (dist * 0.36f).coerceIn(stub * 1.6f, 100f)
             val c1 = PointF(start.x + n1.x * ctrl, start.y + n1.y * ctrl)
             val c2 = PointF(end.x + n2.x * ctrl, end.y + n2.y * ctrl)
             val p = Path()
@@ -481,7 +485,7 @@ class FlowCanvasView(context: Context) : View(context) {
             return p
         }
 
-        return buildAroundCurve(a, b, start, end, fromSide, toSide, sourceOut, targetOut, stub)
+        return buildAroundCurve(a, b, start, end, fromSide, toSide, sourceOut, targetOut, n1, n2, stub)
     }
 
     private fun isProperlyFacing(
@@ -492,19 +496,28 @@ class FlowCanvasView(context: Context) : View(context) {
         val acy = a.y + a.height / 2f
         val bcx = b.x + b.width / 2f
         val bcy = b.y + b.height / 2f
+        // Require clear separation on the facing axis so side-by-side boxes
+        // with bottom→top are not treated as facing.
+        val minSep = 8f
         return when {
-            fromSide == ConnectionSide.BOTTOM && toSide == ConnectionSide.TOP -> acy < bcy
-            fromSide == ConnectionSide.TOP && toSide == ConnectionSide.BOTTOM -> acy > bcy
-            fromSide == ConnectionSide.RIGHT && toSide == ConnectionSide.LEFT -> acx < bcx
-            fromSide == ConnectionSide.LEFT && toSide == ConnectionSide.RIGHT -> acx > bcx
+            fromSide == ConnectionSide.BOTTOM && toSide == ConnectionSide.TOP ->
+                acy + a.height / 2f + minSep < bcy - b.height / 2f
+            fromSide == ConnectionSide.TOP && toSide == ConnectionSide.BOTTOM ->
+                acy - a.height / 2f - minSep > bcy + b.height / 2f
+            fromSide == ConnectionSide.RIGHT && toSide == ConnectionSide.LEFT ->
+                acx + a.width / 2f + minSep < bcx - b.width / 2f
+            fromSide == ConnectionSide.LEFT && toSide == ConnectionSide.RIGHT ->
+                acx - a.width / 2f - minSep > bcx + b.width / 2f
             else -> false
         }
     }
 
     /**
-     * Tight around-path. Key idea: only clear the *relevant* edges of each
-     * shape by a small margin (~20px), never the global bbox of both — that
-     * was causing the huge left-hand loop in the previous build.
+     * Path structure (always):
+     *   start  --(along n1)--  sourceOut  ~~smooth outside~~  targetOut  --(along n2)--  end
+     *
+     * The first and last legs are straight along the face normals so the
+     * connector never reverses at the attachment.
      */
     private fun buildAroundCurve(
         a: FlowElement,
@@ -515,101 +528,130 @@ class FlowCanvasView(context: Context) : View(context) {
         toSide: ConnectionSide,
         sourceOut: PointF,
         targetOut: PointF,
+        n1: PointF,
+        n2: PointF,
         stub: Float,
     ): Path {
-        val clear = 22f // how far outside a shape edge the path stays
-        val keys = mutableListOf<PointF>()
-        keys += start
-        keys += sourceOut
+        val clear = 24f
+        val middle = mutableListOf<PointF>()
 
         val sameAxis = (fromSide == ConnectionSide.TOP || fromSide == ConnectionSide.BOTTOM) ==
                        (toSide == ConnectionSide.TOP || toSide == ConnectionSide.BOTTOM)
 
         if (fromSide == toSide) {
-            // Same face: short parallel offset, then into target.
             when (fromSide) {
                 ConnectionSide.TOP -> {
                     val y = min(sourceOut.y, targetOut.y) - clear
-                    keys += PointF(sourceOut.x, y)
-                    keys += PointF(targetOut.x, y)
+                    middle += PointF(sourceOut.x, y)
+                    middle += PointF(targetOut.x, y)
                 }
                 ConnectionSide.BOTTOM -> {
                     val y = max(sourceOut.y, targetOut.y) + clear
-                    keys += PointF(sourceOut.x, y)
-                    keys += PointF(targetOut.x, y)
+                    middle += PointF(sourceOut.x, y)
+                    middle += PointF(targetOut.x, y)
                 }
                 ConnectionSide.LEFT -> {
                     val x = min(sourceOut.x, targetOut.x) - clear
-                    keys += PointF(x, sourceOut.y)
-                    keys += PointF(x, targetOut.y)
+                    middle += PointF(x, sourceOut.y)
+                    middle += PointF(x, targetOut.y)
                 }
                 else -> {
                     val x = max(sourceOut.x, targetOut.x) + clear
-                    keys += PointF(x, sourceOut.y)
-                    keys += PointF(x, targetOut.y)
+                    middle += PointF(x, sourceOut.y)
+                    middle += PointF(x, targetOut.y)
                 }
             }
         } else if (!sameAxis) {
-            // Adjacent faces: single outside corner, kept tight.
-            val cx = when {
-                fromSide == ConnectionSide.LEFT || fromSide == ConnectionSide.RIGHT -> targetOut.x
-                toSide == ConnectionSide.LEFT -> min(a.x, b.x) - clear
-                toSide == ConnectionSide.RIGHT -> max(a.x + a.width, b.x + b.width) + clear
-                else -> sourceOut.x
-            }
-            val cy = when {
-                fromSide == ConnectionSide.TOP || fromSide == ConnectionSide.BOTTOM -> targetOut.y
-                toSide == ConnectionSide.TOP -> min(a.y, b.y) - clear
-                toSide == ConnectionSide.BOTTOM -> max(a.y + a.height, b.y + b.height) + clear
-                else -> sourceOut.y
-            }
-            keys += PointF(cx, cy)
+            // Adjacent: one outside corner between the two stubs.
+            val cx = if (fromSide == ConnectionSide.LEFT || fromSide == ConnectionSide.RIGHT)
+                targetOut.x else sourceOut.x
+            val cy = if (fromSide == ConnectionSide.TOP || fromSide == ConnectionSide.BOTTOM)
+                targetOut.y else sourceOut.y
+            // Push the corner outside both boxes if it landed inside.
+            val corner = pushOutside(PointF(cx, cy), a, b, clear)
+            middle += corner
         } else {
-            // Opposite faces, wrong order (e.g. top of upper → bottom of lower).
-            // Route beside the shapes, then under/over the target only — not
-            // around the combined bbox.
+            // Opposite faces, wrong order — arc beside, then into the target face.
             val vertical = fromSide == ConnectionSide.TOP || fromSide == ConnectionSide.BOTTOM
             if (vertical) {
-                // Prefer the side closer to the midpoint of the two attachment points.
                 val midX = (start.x + end.x) / 2f
                 val leftEdge = min(a.x, b.x) - clear
                 val rightEdge = max(a.x + a.width, b.x + b.width) + clear
                 val sideX = if (abs(midX - leftEdge) <= abs(rightEdge - midX)) leftEdge else rightEdge
-                // Keep the vertical run between the two outer stubs only.
-                keys += PointF(sideX, sourceOut.y)
-                keys += PointF(sideX, targetOut.y)
+                middle += PointF(sideX, sourceOut.y)
+                middle += PointF(sideX, targetOut.y)
             } else {
                 val midY = (start.y + end.y) / 2f
                 val topEdge = min(a.y, b.y) - clear
                 val botEdge = max(a.y + a.height, b.y + b.height) + clear
                 val sideY = if (abs(midY - topEdge) <= abs(botEdge - midY)) topEdge else botEdge
-                keys += PointF(sourceOut.x, sideY)
-                keys += PointF(targetOut.x, sideY)
+                middle += PointF(sourceOut.x, sideY)
+                middle += PointF(targetOut.x, sideY)
             }
         }
 
-        keys += targetOut
-        keys += end
-        return smoothCubicThrough(keys)
+        // Assemble: normal-out → middle curve → normal-in
+        val p = Path()
+        p.moveTo(start.x, start.y)
+        // Leg 1: strictly along outward normal (no reverse).
+        p.lineTo(sourceOut.x, sourceOut.y)
+
+        if (middle.isEmpty()) {
+            // Direct smooth from sourceOut to targetOut
+            val mx = (sourceOut.x + targetOut.x) / 2f
+            val my = (sourceOut.y + targetOut.y) / 2f
+            p.cubicTo(mx, sourceOut.y, mx, targetOut.y, targetOut.x, targetOut.y)
+        } else {
+            // Smooth through: sourceOut + middle + targetOut
+            val chain = ArrayList<PointF>(middle.size + 2)
+            chain += sourceOut
+            chain.addAll(middle)
+            chain += targetOut
+            appendSmoothCubics(p, chain)
+        }
+
+        // Leg 2: strictly along inward normal into the target face.
+        p.lineTo(end.x, end.y)
+        return p
+    }
+
+    /** If pt is inside either box (expanded), push it to the nearest outside edge. */
+    private fun pushOutside(pt: PointF, a: FlowElement, b: FlowElement, clear: Float): PointF {
+        fun expand(e: FlowElement) = RectF(e.x - clear, e.y - clear, e.x + e.width + clear, e.y + e.height + clear)
+        val ra = expand(a)
+        val rb = expand(b)
+        var x = pt.x
+        var y = pt.y
+        for (r in listOf(ra, rb)) {
+            if (x > r.left && x < r.right && y > r.top && y < r.bottom) {
+                val dl = x - r.left
+                val dr = r.right - x
+                val dt = y - r.top
+                val db = r.bottom - y
+                val m = minOf(dl, dr, dt, db)
+                when (m) {
+                    dl -> x = r.left
+                    dr -> x = r.right
+                    dt -> y = r.top
+                    else -> y = r.bottom
+                }
+            }
+        }
+        return PointF(x, y)
     }
 
     /**
-     * Convert key points to a continuous cubic path with low tension so curves
-     * stay close to the polyline (tight pipes, not ballooning loops).
+     * Append cubic segments through [pts] onto an existing path (path already
+     * at pts[0]).  Uses low tension so the curve stays close to the polyline
+     * and does not bow back through shapes.
      */
-    private fun smoothCubicThrough(pts: List<PointF>): Path {
-        val p = Path()
-        if (pts.isEmpty()) return p
-        p.moveTo(pts[0].x, pts[0].y)
-        if (pts.size == 1) return p
+    private fun appendSmoothCubics(p: Path, pts: List<PointF>) {
+        if (pts.size < 2) return
         if (pts.size == 2) {
-            // Even two points: slight outward bulge so it never looks ruler-straight.
-            val mx = (pts[0].x + pts[1].x) / 2f
-            val my = (pts[0].y + pts[1].y) / 2f
-            p.cubicTo(mx, pts[0].y, mx, pts[1].y, pts[1].x, pts[1].y)
-            return p
+            p.lineTo(pts[1].x, pts[1].y)
+            return
         }
-        val tension = 0.35f // lower = tighter to key points (closer to hand sketch)
+        val tension = 0.30f
         for (i in 0 until pts.lastIndex) {
             val p0 = pts[if (i == 0) 0 else i - 1]
             val p1 = pts[i]
@@ -625,7 +667,6 @@ class FlowCanvasView(context: Context) : View(context) {
             )
             p.cubicTo(c1.x, c1.y, c2.x, c2.y, p2.x, p2.y)
         }
-        return p
     }
 
     private fun buildRoutedPath(points:List<PointF>):Path{val p=Path();if(points.isEmpty())return p;if(points.size==1){p.moveTo(points[0].x,points[0].y);return p};val radius=28f;p.moveTo(points[0].x,points[0].y);for(i in 1 until points.lastIndex+1){val prev=points[i-1];val cur=points[i];val next=if(i<points.lastIndex)points[i+1]else null;if(next==null){p.lineTo(cur.x,cur.y);break};val inLen=hypot(cur.x-prev.x,cur.y-prev.y);val outLen=hypot(next.x-cur.x,next.y-cur.y);if(inLen<1f||outLen<1f){p.lineTo(cur.x,cur.y);continue};val r=min(radius,min(inLen,outLen)*.38f);val before=PointF(cur.x+(prev.x-cur.x)*r/inLen,cur.y+(prev.y-cur.y)*r/inLen);val after=PointF(cur.x+(next.x-cur.x)*r/outLen,cur.y+(next.y-cur.y)*r/outLen);p.lineTo(before.x,before.y);p.quadTo(cur.x,cur.y,after.x,after.y)};return p}
