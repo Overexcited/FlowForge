@@ -454,10 +454,8 @@ class FlowCanvasView(context: Context) : View(context) {
         toSide: ConnectionSide,
     ): Path {
         // --- 1. Square route ---
-        // Expand AABBs of EVERY element (including source/target and stars/clouds).
-        // Stub is always outside that padding so visibility never starts inside an obstacle.
         val expand = 44f
-        val stub = expand + 20f // 64
+        val stub = expand + 20f // 64 — always outside padded AABBs
         val sourceOut = offsetFromSide(start, fromSide, stub)
         val targetOut = offsetFromSide(end, toSide, stub)
         val coreObstacles = listOf(
@@ -467,12 +465,16 @@ class FlowCanvasView(context: Context) : View(context) {
 
         var middle = visibilityRoute(sourceOut, targetOut, coreObstacles, 0)
 
-        // If visibility fell back to a direct segment that still clips a block
-        // (or only returned endpoints), force an around-the-union detour.
-        val direct = middle.size <= 2
-        val directHits = !segmentClear(sourceOut, targetOut, coreObstacles)
-        if (direct || directHits) {
-            middle = forcedDetour(sourceOut, targetOut, a, b, expand)
+        fun pathHits(pts: List<PointF>): Boolean {
+            for (i in 0 until pts.lastIndex) {
+                if (!segmentClear(pts[i], pts[i + 1], coreObstacles)) return true
+            }
+            return false
+        }
+
+        val candidate = listOf(sourceOut) + middle.drop(1).dropLast(1) + listOf(targetOut)
+        if (middle.size <= 2 || pathHits(candidate)) {
+            middle = forcedDetour(sourceOut, targetOut, fromSide, toSide, a, b, expand)
         }
 
         val raw = mutableListOf<PointF>()
@@ -494,17 +496,17 @@ class FlowCanvasView(context: Context) : View(context) {
             return p
         }
 
-        // Mild early-curve bias (keep stubs outside padding)
-        if (square.size >= 4) {
-            val exit = square[1]
-            val next = square[2]
-            square[1] = PointF(exit.x * 0.75f + next.x * 0.25f, exit.y * 0.75f + next.y * 0.25f)
-            val entry = square[square.lastIndex - 1]
-            val prev = square[square.lastIndex - 2]
-            square[square.lastIndex - 1] = PointF(
-                entry.x * 0.75f + prev.x * 0.25f,
-                entry.y * 0.75f + prev.y * 0.25f
+        // Final safety: if any segment still clips, replace with face-aware detour
+        if (pathHits(square)) {
+            square.clear()
+            square += start
+            square += sourceOut
+            square.addAll(
+                forcedDetour(sourceOut, targetOut, fromSide, toSide, a, b, expand)
+                    .drop(1).dropLast(1)
             )
+            square += targetOut
+            square += end
         }
 
         // --- 2. Chaikin → continuous curve ---
@@ -512,12 +514,15 @@ class FlowCanvasView(context: Context) : View(context) {
     }
 
     /**
-     * Guaranteed outside path when visibility fails: route around the shorter
-     * side of the union bounding box of A and B.
+     * Face-aware outside path. Approach to targetOut stays in the outward
+     * half-plane of the target face (never cross the target to reach a bottom
+     * face from above, etc.). Same for leaving sourceOut.
      */
     private fun forcedDetour(
         sourceOut: PointF,
         targetOut: PointF,
+        fromSide: ConnectionSide,
+        toSide: ConnectionSide,
         a: FlowElement,
         b: FlowElement,
         expand: Float,
@@ -525,20 +530,24 @@ class FlowCanvasView(context: Context) : View(context) {
         val L = min(a.x, b.x) - expand
         val R = max(a.x + a.width, b.x + b.width) + expand
         val T = min(a.y, b.y) - expand
-        val B = max(a.y + a.height, b.y + b.height) + expand
+        val Btm = max(a.y + a.height, b.y + b.height) + expand
         val midX = (sourceOut.x + targetOut.x) / 2f
-        val midY = (sourceOut.y + targetOut.y) / 2f
-        // Prefer the side with less travel
         val goLeft = abs(midX - L) <= abs(R - midX)
-        val goTop = abs(midY - T) <= abs(B - midY)
-        // Vertical separation dominant → side route; else top/bottom route
-        return if (abs(sourceOut.y - targetOut.y) >= abs(sourceOut.x - targetOut.x)) {
-            val x = if (goLeft) L else R
-            listOf(sourceOut, PointF(x, sourceOut.y), PointF(x, targetOut.y), targetOut)
-        } else {
-            val y = if (goTop) T else B
-            listOf(sourceOut, PointF(sourceOut.x, y), PointF(targetOut.x, y), targetOut)
-        }
+        val sideX = if (goLeft) L else R
+
+        // Always leave along fromSide and arrive along toSide by sandwiching
+        // a side corridor that connects the two outward half-planes.
+        val pts = mutableListOf<PointF>()
+        pts += sourceOut
+
+        // After leaving source, move to the side corridor at sourceOut's depth
+        pts += PointF(sideX, sourceOut.y)
+
+        // Travel along the side to the target's outward depth
+        pts += PointF(sideX, targetOut.y)
+
+        pts += targetOut
+        return pts
     }
 
     /**
