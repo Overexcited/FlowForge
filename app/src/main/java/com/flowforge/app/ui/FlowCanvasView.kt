@@ -499,13 +499,13 @@ class FlowCanvasView(context: Context) : View(context) {
             )
         }
 
-        // --- 2. Absolute smooth: Chaikin until no angles remain ---
-        return pathFromSmoothPoints(chaikinSmooth(square, passes = 8))
+        // --- 2. Absolute smooth: more Chaikin passes → smoother continuous curve ---
+        return pathFromSmoothPoints(chaikinSmooth(square, passes = 12))
     }
 
     /**
      * Chaikin corner-cutting. Endpoints stay pinned to the attachment points.
-     * 8 passes → quadratic B-spline approximation; no visible kinks.
+     * 12 passes → dense quadratic B-spline; no visible kinks.
      */
     private fun chaikinSmooth(points: List<PointF>, passes: Int): List<PointF> {
         if (points.size < 3) return points
@@ -596,21 +596,29 @@ class FlowCanvasView(context: Context) : View(context) {
 
     private fun segmentClear(a:PointF,b:PointF,obs:List<RectF>):Boolean {
         fun pointIn(r:RectF,p:PointF)=p.x>r.left && p.x<r.right && p.y>r.top && p.y<r.bottom
-        fun cross(a:PointF,b:PointF,c:PointF)=
-            (b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x)
-        fun onSegment(a:PointF,b:PointF,p:PointF)=
-            abs(cross(a,b,p))<0.01f &&
-            p.x>=min(a.x,b.x)-0.01f && p.x<=max(a.x,b.x)+0.01f &&
-            p.y>=min(a.y,b.y)-0.01f && p.y<=max(a.y,b.y)+0.01f
-        fun intersects(a:PointF,b:PointF,c:PointF,d:PointF):Boolean {
-            val ab1=cross(a,b,c);val ab2=cross(a,b,d)
-            val cd1=cross(c,d,a);val cd2=cross(c,d,b)
+        fun cross(p:PointF,q:PointF,r:PointF)=
+            (q.x-p.x)*(r.y-p.y)-(q.y-p.y)*(r.x-p.x)
+        fun onSegment(p:PointF,q:PointF,r:PointF)=
+            abs(cross(p,q,r))<0.01f &&
+            r.x>=min(p.x,q.x)-0.01f && r.x<=max(p.x,q.x)+0.01f &&
+            r.y>=min(p.y,q.y)-0.01f && r.y<=max(p.y,q.y)+0.01f
+        fun intersects(p1:PointF,p2:PointF,p3:PointF,p4:PointF):Boolean {
+            val ab1=cross(p1,p2,p3);val ab2=cross(p1,p2,p4)
+            val cd1=cross(p3,p4,p1);val cd2=cross(p3,p4,p2)
             if(((ab1>0f&&ab2<0f)||(ab1<0f&&ab2>0f)) &&
                ((cd1>0f&&cd2<0f)||(cd1<0f&&cd2>0f))) return true
-            return onSegment(a,b,c)||onSegment(a,b,d)||onSegment(c,d,a)||onSegment(c,d,b)
+            return onSegment(p1,p2,p3)||onSegment(p1,p2,p4)||onSegment(p3,p4,p1)||onSegment(p3,p4,p2)
         }
         for(r in obs){
             if(pointIn(r,a)||pointIn(r,b)) return false
+            // Sample interior points so diagonals through AABB are never missed
+            // (edge-only tests can fail near corners / thin clips).
+            for (i in 1..8) {
+                val t = i / 9f
+                val sx = a.x + (b.x - a.x) * t
+                val sy = a.y + (b.y - a.y) * t
+                if (sx > r.left && sx < r.right && sy > r.top && sy < r.bottom) return false
+            }
             val tl=PointF(r.left,r.top);val tr=PointF(r.right,r.top)
             val br=PointF(r.right,r.bottom);val bl=PointF(r.left,r.bottom)
             if(intersects(a,b,tl,tr)||intersects(a,b,tr,br)||intersects(a,b,br,bl)||intersects(a,b,bl,tl)) return false
