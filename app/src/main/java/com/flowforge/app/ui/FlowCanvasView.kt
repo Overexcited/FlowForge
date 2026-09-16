@@ -432,30 +432,15 @@ class FlowCanvasView(context: Context) : View(context) {
         toSide:ConnectionSide,
     ):Path {
         // start/end are the actual automatically distributed attachment points
-        // on the selected faces.
-        //
-        // Routing escalates through three passes. Most connections between two
-        // ordinary blocks have nothing real between them, so pass 1 tries one
-        // smooth curve straight from face to face - no elbow at all. Only when
-        // something is genuinely in the way does this drop to the corner-
-        // avoiding router below, and only when THAT route can't be smoothed
-        // without cutting back through a block does it fall further still to
-        // the older rounded-corner polyline.
+        // on the selected faces. Every connector leaves its face on a short
+        // perpendicular stand-off (sourceOut/targetOut) before the router
+        // decides how to reach the other side; this keeps departure and
+        // arrival clean at every block regardless of relative position. The
+        // corner-avoiding route between the two stand-off points is then
+        // smoothed into one continuous curve; only if that smoothing would
+        // cut back through a block does this fall back to the older
+        // rounded-corner polyline.
         val realObstacles=obstacleRects(a.id,b.id)
-        val rawA=RectF(a.x,a.y,a.x+a.width,a.y+a.height)
-        val rawB=RectF(b.x,b.y,b.x+b.width,b.y+b.height)
-        // A single curve segment can only ever bow smoothly one way. If the
-        // connector has to leave a face pointing away from the other block,
-        // or arrive moving away from the block it just left, it fundamentally
-        // needs a real turn somewhere in the middle - forcing that into one
-        // curve is exactly what produces a self-crossing "fishhook" loop
-        // right where it leaves or lands. Skip straight to the corner-aware
-        // route in that case instead of trying (and rejecting) a bad curve.
-        if(chordAlignmentOk(start,end,fromSide,toSide)){
-            val direct=directCurveSeg(start,end,fromSide,toSide)
-            if(directCurveClear(direct,realObstacles,rawA,rawB)) return segsToPath(listOf(direct))
-        }
-
         val sourceOut=offsetFromSide(start,fromSide,64f)
         val targetOut=offsetFromSide(end,toSide,64f)
         val selfA=expandedElementRect(a,48f)
@@ -540,54 +525,6 @@ class FlowCanvasView(context: Context) : View(context) {
         else->PointF(0f,0f)
     }
 
-    // True only when both the departure direction (leaving `start`) and the
-    // arrival direction (the direction of travel at the instant it reaches
-    // `end`) point at least somewhat toward the other block, rather than
-    // away from it. A single curve segment can bow gracefully when both ends
-    // generally lean the same way as the straight line between them; when
-    // either end has to leave/arrive heading the "wrong" way it needs a real
-    // turn in the middle, which one curve segment can't provide without
-    // crossing itself.
-    private fun chordAlignmentOk(start:PointF,end:PointF,fromSide:ConnectionSide,toSide:ConnectionSide):Boolean{
-        val cx=end.x-start.x; val cy=end.y-start.y
-        val len=hypot(cx,cy)
-        if(len<1f) return true
-        val chordX=cx/len; val chordY=cy/len
-        val dep=outwardNormal(fromSide)
-        val arr=outwardNormal(toSide)
-        val depDot=dep.x*chordX+dep.y*chordY
-        val arrDot=(-arr.x)*chordX+(-arr.y)*chordY
-        return depDot>=0f && arrDot>=0f
-    }
-
-    // A single smooth curve leaving `start` perpendicular to `fromSide` and
-    // arriving at `end` perpendicular to `toSide`. How far the curve bows out
-    // before turning toward the other block scales with the distance between
-    // the two faces, so nearby blocks get a gentle curve and distant ones get
-    // a fuller one, rather than always jutting straight out a fixed distance
-    // before it's allowed to turn.
-    private fun directCurveSeg(start:PointF,end:PointF,fromSide:ConnectionSide,toSide:ConnectionSide):CubicSeg{
-        val gap=hypot(end.x-start.x,end.y-start.y)
-        val push=(gap*0.35f).coerceIn(30f,70f)
-        val c1=offsetFromSide(start,fromSide,push)
-        val c2=offsetFromSide(end,toSide,push)
-        return CubicSeg(start,c1,c2,end)
-    }
-
-    // Checked against the blocks' true outlines, with no extra margin: the
-    // curve is expected to hug close to both of them right at its two ends,
-    // so only its interior needs to stay clear of them (and of anything
-    // else on the canvas).
-    private fun directCurveClear(seg:CubicSeg,realObstacles:List<RectF>,rawA:RectF,rawB:RectF):Boolean{
-        val pts=sampleCubic(seg.p0,seg.c1,seg.c2,seg.p1,26)
-        val checkList=realObstacles+listOf(rawA,rawB)
-        for(i in 1 until pts.lastIndex){
-            val pt=pts[i]
-            for(r in checkList){ if(pt.x>r.left&&pt.x<r.right&&pt.y>r.top&&pt.y<r.bottom) return false }
-        }
-        return true
-    }
-
     private fun catmullTangent(prev:PointF?,cur:PointF,next:PointF?):PointF{
         val p=prev?:cur; val n=next?:cur
         return PointF((n.x-p.x)/2f,(n.y-p.y)/2f)
@@ -630,10 +567,16 @@ class FlowCanvasView(context: Context) : View(context) {
     // hugging that block, and a tangent sized off the long straight stretch
     // easily overshoots past the corner and back into the block it's routing
     // around. Capping by real clearance keeps every corner inside the room
-    // it actually has. The corner right at a block's own edge (the first and
-    // last waypoint) is measured against every obstacle except that block
-    // itself, matching the collision check below: hugging your own edge on
-    // the way out is departure, not a hazard.
+    // it actually has.
+    //
+    // The waypoint right at a block's own edge AND the stand-off point next
+    // to it (sourceOut/targetOut, always exactly 64 units further out) are
+    // both measured against every obstacle except that block itself: a
+    // connector sitting on its own stand-off is departure, not a hazard, and
+    // treating it as one was clamping every ordinary connection down to a
+    // barely-visible curve. Only waypoints beyond that stand-off - genuine
+    // corners the router added to get around something - are judged by their
+    // real distance to both blocks.
     private fun buildSplineSegments(points:List<PointF>,fromSide:ConnectionSide,toSide:ConnectionSide,realObstacles:List<RectF>,selfA:RectF,selfB:RectF):List<CubicSeg>{
         val n=points.size
         if(n<2)return emptyList()
@@ -642,23 +585,27 @@ class FlowCanvasView(context: Context) : View(context) {
         val minTangent=4f
         val tangents=arrayOfNulls<PointF>(n)
         for(i in 0 until n){
+            val nearA=i==0||i==1
+            val nearB=i==n-1||i==n-2
+            val clrObstacles=ArrayList<RectF>(realObstacles.size+2)
+            clrObstacles.addAll(realObstacles)
+            if(!nearA) clrObstacles+=selfA
+            if(!nearB) clrObstacles+=selfB
+            val clr=clearanceToObstacles(points[i],clrObstacles)
             tangents[i]=when(i){
                 0->{
-                    val clr=clearanceToObstacles(points[0],realObstacles+listOf(selfB))
                     val out=outwardNormal(fromSide)
                     val d=segLen[0]
                     val cap=max(min(d*0.9f,clr*0.6f),minTangent)
                     clampMagnitude(PointF(out.x*d*0.6f,out.y*d*0.6f),cap)
                 }
                 n-1->{
-                    val clr=clearanceToObstacles(points[n-1],realObstacles+listOf(selfA))
                     val out=outwardNormal(toSide)
                     val d=segLen[n-2]
                     val cap=max(min(d*0.9f,clr*0.6f),minTangent)
                     clampMagnitude(PointF(-out.x*d*0.6f,-out.y*d*0.6f),cap)
                 }
                 else->{
-                    val clr=clearanceToObstacles(points[i],realObstacles+listOf(selfA,selfB))
                     val raw=catmullTangent(points[i-1],points[i],points[i+1])
                     val cap=max(min(min(segLen[i-1],segLen[i])*0.5f,clr*0.6f),minTangent)
                     clampMagnitude(raw,cap)
@@ -713,19 +660,23 @@ class FlowCanvasView(context: Context) : View(context) {
 
     // A spline can bow outside the straight polyline it was drawn through, so
     // before trusting it this re-checks against the same generous margins the
-    // router used to plan that polyline. The segment immediately leaving `a`
-    // is exempt from `selfA` (and likewise the segment immediately arriving
-    // at `b` from `selfB`): a connector is necessarily still close to its own
-    // block for that first/last stretch, and that is departure, not
-    // collision.
+    // router used to plan that polyline. A segment is exempt from a block's
+    // margin only when BOTH its endpoints sit in that block's near zone (the
+    // block's own edge and its stand-off point) - the same zone used above
+    // when capping tangents - since a connector is necessarily still close to
+    // its own block for that stretch, and that is departure, not collision.
     private fun fallbackSplineClear(segs:List<CubicSeg>,realObstacles:List<RectF>,selfA:RectF,selfB:RectF):Boolean{
         if(hasSelfIntersection(segs)) return false
+        val n=segs.size+1
         segs.forEachIndexed { si,seg->
             val pts=sampleCubic(seg.p0,seg.c1,seg.c2,seg.p1,14)
+            val p0Idx=si; val p1Idx=si+1
+            val segNearA=(p0Idx==0||p0Idx==1)&&(p1Idx==0||p1Idx==1)
+            val segNearB=(p0Idx==n-1||p0Idx==n-2)&&(p1Idx==n-1||p1Idx==n-2)
             val checkList=ArrayList<RectF>(realObstacles.size+2)
             checkList.addAll(realObstacles)
-            if(si!=0) checkList+=selfA
-            if(si!=segs.lastIndex) checkList+=selfB
+            if(!segNearA) checkList+=selfA
+            if(!segNearB) checkList+=selfB
             val lastI=pts.lastIndex
             for(i in pts.indices){
                 if(si==0 && i==0) continue
@@ -835,7 +786,7 @@ class FlowCanvasView(context: Context) : View(context) {
         nodes+=start
         nodes+=end
         obs.forEach { r ->
-            val gap=10f
+            val gap=26f
             nodes+=PointF(r.left-gap,r.top-gap)
             nodes+=PointF(r.right+gap,r.top-gap)
             nodes+=PointF(r.right+gap,r.bottom+gap)
