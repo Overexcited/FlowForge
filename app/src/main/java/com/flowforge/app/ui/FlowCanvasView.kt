@@ -447,11 +447,14 @@ class FlowCanvasView(context: Context) : View(context) {
     }
 
     /**
-     * Hand-drawing style routing: continuous C / U / S arcs.
+     * Reliable smooth routing:
+     *  1. Leave along face normal
+     *  2. Route outside both shapes (never through them)
+     *  3. Arrive along face normal
+     *  4. Entire path is cubic with G1 continuity (no kinks, no square corners)
      *
-     * Not orthogonal-with-rounded-corners.  One or two long cubics whose
-     * endpoint tangents follow the face normals, with a single outside "via"
-     * point that forms a natural pipe bend (see mock-up).
+     * Facing pairs → one cubic.  All others → exit/entry stubs + one outside
+     * elbow smoothed into continuous cubics.
      */
     private fun buildDynamicRoutedPath(
         a: FlowElement,
@@ -464,190 +467,167 @@ class FlowCanvasView(context: Context) : View(context) {
         val dist = hypot(end.x - start.x, end.y - start.y).coerceAtLeast(1f)
         val n1 = normalOf(fromSide)
         val n2 = normalOf(toSide)
-        // Pull distance for endpoint controls — scales with separation so
-        // close shapes get tight U-turns and far shapes get larger arcs.
-        val pull = (dist * 0.35f).coerceIn(28f, 100f)
+        val stub = (20f + dist * 0.04f).coerceIn(18f, 36f)
+        val pull = (dist * 0.32f).coerceIn(stub * 1.4f, 90f)
 
-        if (isProperlyFacing(a, b, fromSide, toSide)) {
+        val exit = PointF(start.x + n1.x * stub, start.y + n1.y * stub)
+        val entry = PointF(end.x + n2.x * stub, end.y + n2.y * stub)
+
+        // --- Facing: single cubic ---
+        if (isProperlyFacing(a, b, fromSide, toSide) &&
+            segmentClear(exit, entry, obstacleRects(a.id, b.id))
+        ) {
             val c1 = PointF(start.x + n1.x * pull, start.y + n1.y * pull)
             val c2 = PointF(end.x + n2.x * pull, end.y + n2.y * pull)
-            // Quick clear check along the chord between controls.
-            if (segmentClear(c1, c2, obstacleRects(a.id, b.id))) {
-                val p = Path()
-                p.moveTo(start.x, start.y)
-                p.cubicTo(c1.x, c1.y, c2.x, c2.y, end.x, end.y)
-                return p
-            }
+            val p = Path()
+            p.moveTo(start.x, start.y)
+            p.cubicTo(c1.x, c1.y, c2.x, c2.y, end.x, end.y)
+            return p
         }
 
-        return buildArcPath(a, b, start, end, fromSide, toSide, n1, n2, pull)
+        // --- Wrap: exit → outside elbow(s) → entry, smoothed ---
+        val elbow = pickElbow(a, b, start, end, fromSide, toSide, exit, entry)
+        val pts = listOf(start, exit) + elbow + listOf(entry, end)
+        return smoothPipe(pts, n1, n2, stub)
     }
 
     private fun isProperlyFacing(
         a: FlowElement, b: FlowElement,
         fromSide: ConnectionSide, toSide: ConnectionSide,
     ): Boolean {
-        val minSep = 16f
+        val gap = 20f
         return when {
             fromSide == ConnectionSide.BOTTOM && toSide == ConnectionSide.TOP ->
-                a.y + a.height + minSep < b.y
+                a.y + a.height + gap < b.y
             fromSide == ConnectionSide.TOP && toSide == ConnectionSide.BOTTOM ->
-                a.y - minSep > b.y + b.height
+                a.y - gap > b.y + b.height
             fromSide == ConnectionSide.RIGHT && toSide == ConnectionSide.LEFT ->
-                a.x + a.width + minSep < b.x
+                a.x + a.width + gap < b.x
             fromSide == ConnectionSide.LEFT && toSide == ConnectionSide.RIGHT ->
-                a.x - minSep > b.x + b.width
+                a.x - gap > b.x + b.width
             else -> false
         }
     }
 
     /**
-     * C-arc / U-turn path matching the hand mock-up.
-     *
-     * Structure (always 2 cubics):
-     *   start --cubic--> via --cubic--> end
-     *
-     * - Start control lies on outward normal of source face
-     * - End control lies on outward normal of target face
-     * - [via] sits outside both boxes at the apex of the natural C/U
-     *
-     * This produces continuous pipe curves, not stadium outlines.
+     * Choose 1–2 elbow points fully outside both boxes.
+     * Prefers the shorter side so loops stay tight.
      */
-    private fun buildArcPath(
-        a: FlowElement,
-        b: FlowElement,
-        start: PointF,
-        end: PointF,
-        fromSide: ConnectionSide,
-        toSide: ConnectionSide,
-        n1: PointF,
-        n2: PointF,
-        pull: Float,
-    ): Path {
-        val clear = 28f
-        val via = chooseVia(a, b, start, end, fromSide, toSide, clear)
+    private fun pickElbow(
+        a: FlowElement, b: FlowElement,
+        start: PointF, end: PointF,
+        fromSide: ConnectionSide, toSide: ConnectionSide,
+        exit: PointF, entry: PointF,
+    ): List<PointF> {
+        val pad = 26f
+        val L = min(a.x, b.x) - pad
+        val R = max(a.x + a.width, b.x + b.width) + pad
+        val T = min(a.y, b.y) - pad
+        val B = max(a.y + a.height, b.y + b.height) + pad
 
-        // Controls at the endpoints — purely along face normals (correct leave/arrive direction).
-        val cStart = PointF(start.x + n1.x * pull, start.y + n1.y * pull)
-        val cEnd = PointF(end.x + n2.x * pull, end.y + n2.y * pull)
+        // Same face → U parallel to that face
+        if (fromSide == toSide) {
+            return when (fromSide) {
+                ConnectionSide.TOP -> listOf(PointF(exit.x, T), PointF(entry.x, T))
+                ConnectionSide.BOTTOM -> listOf(PointF(exit.x, B), PointF(entry.x, B))
+                ConnectionSide.LEFT -> listOf(PointF(L, exit.y), PointF(L, entry.y))
+                else -> listOf(PointF(R, exit.y), PointF(R, entry.y))
+            }
+        }
 
-        // Controls near the via — pull toward the via from each endpoint so the
-        // arc bulges outward through via (C shape).
-        val toViaX = via.x - start.x
-        val toViaY = via.y - start.y
-        val toViaLen = hypot(toViaX, toViaY).coerceAtLeast(1f)
-        val fromViaX = end.x - via.x
-        val fromViaY = end.y - via.y
-        val fromViaLen = hypot(fromViaX, fromViaY).coerceAtLeast(1f)
+        val fromVert = fromSide == ConnectionSide.TOP || fromSide == ConnectionSide.BOTTOM
+        val toVert = toSide == ConnectionSide.TOP || toSide == ConnectionSide.BOTTOM
 
-        // Via-side controls: blend normal direction with direction toward via
-        // so the turn is smooth and round (not a kink).
-        val viaPull = (min(toViaLen, fromViaLen) * 0.4f).coerceIn(24f, 80f)
-        val cViaIn = PointF(
-            via.x - (toViaX / toViaLen) * viaPull,
-            via.y - (toViaY / toViaLen) * viaPull
-        )
-        val cViaOut = PointF(
-            via.x + (fromViaX / fromViaLen) * viaPull,
-            via.y + (fromViaY / fromViaLen) * viaPull
-        )
+        if (fromVert != toVert) {
+            // Adjacent faces: single corner outside both boxes
+            val cx = if (fromVert) entry.x else exit.x
+            val cy = if (fromVert) exit.y else entry.y
+            // Push outside if inside a box
+            var x = cx
+            var y = cy
+            for (e in listOf(a, b)) {
+                if (x > e.x - pad && x < e.x + e.width + pad &&
+                    y > e.y - pad && y < e.y + e.height + pad
+                ) {
+                    // Move to the outside corner implied by the two faces
+                    x = when {
+                        fromSide == ConnectionSide.LEFT || toSide == ConnectionSide.LEFT -> L
+                        fromSide == ConnectionSide.RIGHT || toSide == ConnectionSide.RIGHT -> R
+                        else -> x
+                    }
+                    y = when {
+                        fromSide == ConnectionSide.TOP || toSide == ConnectionSide.TOP -> T
+                        fromSide == ConnectionSide.BOTTOM || toSide == ConnectionSide.BOTTOM -> B
+                        else -> y
+                    }
+                }
+            }
+            return listOf(PointF(x, y))
+        }
 
-        val p = Path()
-        p.moveTo(start.x, start.y)
-        // First arc: leave along normal, arrive at via
-        p.cubicTo(cStart.x, cStart.y, cViaIn.x, cViaIn.y, via.x, via.y)
-        // Second arc: leave via, arrive along target normal
-        p.cubicTo(cViaOut.x, cViaOut.y, cEnd.x, cEnd.y, end.x, end.y)
-        return p
+        // Opposite faces, wrong order (e.g. top→bottom while A is above B)
+        // Route on the shorter side of the pair.
+        if (fromVert) {
+            val midX = (start.x + end.x) / 2f
+            val side = if (abs(midX - L) <= abs(R - midX)) L else R
+            return listOf(PointF(side, exit.y), PointF(side, entry.y))
+        } else {
+            val midY = (start.y + end.y) / 2f
+            val side = if (abs(midY - T) <= abs(B - midY)) T else B
+            return listOf(PointF(exit.x, side), PointF(entry.x, side))
+        }
     }
 
     /**
-     * Pick a single via point that forms a natural C/U outside both shapes.
-     * Placement follows the hand mock-up:
-     *  - same face → offset parallel to that face, midway in the other axis
-     *  - opposite wrong-order → beside the pair, midway in the long axis
-     *  - adjacent → outside the corner between the two faces
+     * Convert waypoints into a continuous cubic pipe.
+     * Endpoint tangents locked to face normals; interior tangents from neighbors.
+     * G1 continuous — no kinks at joints.
      */
-    private fun chooseVia(
-        a: FlowElement,
-        b: FlowElement,
-        start: PointF,
-        end: PointF,
-        fromSide: ConnectionSide,
-        toSide: ConnectionSide,
-        clear: Float,
-    ): PointF {
-        val left = min(a.x, b.x) - clear
-        val right = max(a.x + a.width, b.x + b.width) + clear
-        val top = min(a.y, b.y) - clear
-        val bottom = max(a.y + a.height, b.y + b.height) + clear
-        val midX = (start.x + end.x) / 2f
-        val midY = (start.y + end.y) / 2f
-
-        val sameAxis = (fromSide == ConnectionSide.TOP || fromSide == ConnectionSide.BOTTOM) ==
-                       (toSide == ConnectionSide.TOP || toSide == ConnectionSide.BOTTOM)
-
-        if (fromSide == toSide) {
-            // Tight U parallel to the shared face (hand-drawing bottom examples).
-            return when (fromSide) {
-                ConnectionSide.TOP -> PointF(midX, min(start.y, end.y) - clear * 1.4f)
-                ConnectionSide.BOTTOM -> PointF(midX, max(start.y, end.y) + clear * 1.4f)
-                ConnectionSide.LEFT -> PointF(min(start.x, end.x) - clear * 1.4f, midY)
-                else -> PointF(max(start.x, end.x) + clear * 1.4f, midY)
-            }
+    private fun smoothPipe(
+        pts: List<PointF>,
+        n1: PointF,
+        n2: PointF,
+        stub: Float,
+    ): Path {
+        val p = Path()
+        if (pts.isEmpty()) return p
+        p.moveTo(pts[0].x, pts[0].y)
+        if (pts.size == 1) return p
+        if (pts.size == 2) {
+            p.lineTo(pts[1].x, pts[1].y)
+            return p
         }
 
-        if (!sameAxis) {
-            // Adjacent faces: via outside the corner (hand-drawing top C-curve).
-            val vx = when {
-                fromSide == ConnectionSide.LEFT || toSide == ConnectionSide.LEFT -> left
-                fromSide == ConnectionSide.RIGHT || toSide == ConnectionSide.RIGHT -> right
-                else -> midX
-            }
-            val vy = when {
-                fromSide == ConnectionSide.TOP || toSide == ConnectionSide.TOP -> top
-                fromSide == ConnectionSide.BOTTOM || toSide == ConnectionSide.BOTTOM -> bottom
-                else -> midY
-            }
-            // Prefer the corner that sits between the two shapes when possible.
-            return PointF(
-                if (fromSide == ConnectionSide.LEFT || fromSide == ConnectionSide.RIGHT) end.x
-                else if (toSide == ConnectionSide.LEFT || toSide == ConnectionSide.RIGHT) start.x
-                else vx,
-                if (fromSide == ConnectionSide.TOP || fromSide == ConnectionSide.BOTTOM) end.y
-                else if (toSide == ConnectionSide.TOP || toSide == ConnectionSide.BOTTOM) start.y
-                else vy
-            ).let { raw ->
-                // Nudge fully outside if it landed on a box.
-                PointF(
-                    raw.x.coerceIn(left, right).let { x ->
-                        when {
-                            x in a.x..(a.x + a.width) || x in b.x..(b.x + b.width) ->
-                                if (abs(x - left) < abs(x - right)) left else right
-                            else -> x
-                        }
-                    },
-                    raw.y.coerceIn(top, bottom).let { y ->
-                        when {
-                            y in a.y..(a.y + a.height) || y in b.y..(b.y + b.height) ->
-                                if (abs(y - top) < abs(y - bottom)) top else bottom
-                            else -> y
-                        }
-                    }
-                )
-            }
+        // Build tangents
+        val tan = Array(pts.size) { PointF(0f, 0f) }
+        val endTan = stub * 1.2f
+        tan[0] = PointF(n1.x * endTan, n1.y * endTan)
+        tan[pts.lastIndex] = PointF(n2.x * endTan, n2.y * endTan)
+        for (i in 1 until pts.lastIndex) {
+            val dx = pts[i + 1].x - pts[i - 1].x
+            val dy = pts[i + 1].y - pts[i - 1].y
+            val len = hypot(dx, dy).coerceAtLeast(1f)
+            val seg = min(
+                hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y),
+                hypot(pts[i + 1].x - pts[i].x, pts[i + 1].y - pts[i].y)
+            )
+            // Higher factor → rounder bends (closer to hand-drawn pipes)
+            val s = seg * 0.45f
+            tan[i] = PointF(dx / len * s, dy / len * s)
         }
 
-        // Opposite faces, wrong order (top→bottom while A is above B, etc.).
-        // C-arc beside the pair — pick the shorter side (hand-drawing style).
-        val vertical = fromSide == ConnectionSide.TOP || fromSide == ConnectionSide.BOTTOM
-        return if (vertical) {
-            val sideX = if (abs(midX - left) <= abs(right - midX)) left else right
-            PointF(sideX, midY)
-        } else {
-            val sideY = if (abs(midY - top) <= abs(bottom - midY)) top else bottom
-            PointF(midX, sideY)
+        for (i in 0 until pts.lastIndex) {
+            val a = pts[i]
+            val b = pts[i + 1]
+            val ta = tan[i]
+            val tb = tan[i + 1]
+            p.cubicTo(
+                a.x + ta.x / 3f, a.y + ta.y / 3f,
+                b.x - tb.x / 3f, b.y - tb.y / 3f,
+                b.x, b.y
+            )
         }
+        return p
     }
 
     private fun buildRoutedPath(points:List<PointF>):Path{val p=Path();if(points.isEmpty())return p;if(points.size==1){p.moveTo(points[0].x,points[0].y);return p};val radius=28f;p.moveTo(points[0].x,points[0].y);for(i in 1 until points.lastIndex+1){val prev=points[i-1];val cur=points[i];val next=if(i<points.lastIndex)points[i+1]else null;if(next==null){p.lineTo(cur.x,cur.y);break};val inLen=hypot(cur.x-prev.x,cur.y-prev.y);val outLen=hypot(next.x-cur.x,next.y-cur.y);if(inLen<1f||outLen<1f){p.lineTo(cur.x,cur.y);continue};val r=min(radius,min(inLen,outLen)*.38f);val before=PointF(cur.x+(prev.x-cur.x)*r/inLen,cur.y+(prev.y-cur.y)*r/inLen);val after=PointF(cur.x+(next.x-cur.x)*r/outLen,cur.y+(next.y-cur.y)*r/outLen);p.lineTo(before.x,before.y);p.quadTo(cur.x,cur.y,after.x,after.y)};return p}
