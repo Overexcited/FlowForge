@@ -438,23 +438,11 @@ class FlowCanvasView(context: Context) : View(context) {
         return shapeBoundaryEndpoint(e,side,offset)
     }
 
-    private fun normalOf(side: ConnectionSide): PointF = when (side) {
-        ConnectionSide.TOP -> PointF(0f, -1f)
-        ConnectionSide.RIGHT -> PointF(1f, 0f)
-        ConnectionSide.BOTTOM -> PointF(0f, 1f)
-        ConnectionSide.LEFT -> PointF(-1f, 0f)
-        else -> PointF(0f, 0f)
-    }
-
     /**
-     * Reliable smooth routing:
-     *  1. Leave along face normal
-     *  2. Route outside both shapes (never through them)
-     *  3. Arrive along face normal
-     *  4. Entire path is cubic with G1 continuity (no kinks, no square corners)
-     *
-     * Facing pairs → one cubic.  All others → exit/entry stubs + one outside
-     * elbow smoothed into continuous cubics.
+     * Step 1 — square/orthogonal routing (v0.2.16 visibility graph + face stubs)
+     * so topology and obstacle avoidance stay correct.
+     * Step 2 — Chaikin-smooth that polyline until every angle is gone; the
+     * drawn path is continuous at pixel level (no visible elbows).
      */
     private fun buildDynamicRoutedPath(
         a: FlowElement,
@@ -464,169 +452,75 @@ class FlowCanvasView(context: Context) : View(context) {
         fromSide: ConnectionSide,
         toSide: ConnectionSide,
     ): Path {
-        val dist = hypot(end.x - start.x, end.y - start.y).coerceAtLeast(1f)
-        val n1 = normalOf(fromSide)
-        val n2 = normalOf(toSide)
-        val stub = (20f + dist * 0.04f).coerceIn(18f, 36f)
-        val pull = (dist * 0.32f).coerceIn(stub * 1.4f, 90f)
+        // Square route: moderate stubs; source/target are NOT expanded as
+        // obstacles (that caused the last-moment outward hook in 0.2.16).
+        val stub = 36f
+        val sourceOut = offsetFromSide(start, fromSide, stub)
+        val targetOut = offsetFromSide(end, toSide, stub)
+        val obstacles = obstacleRects(a.id, b.id) // other blocks only
 
-        val exit = PointF(start.x + n1.x * stub, start.y + n1.y * stub)
-        val entry = PointF(end.x + n2.x * stub, end.y + n2.y * stub)
+        val middle = visibilityRoute(sourceOut, targetOut, obstacles, 0)
+        val raw = mutableListOf<PointF>()
+        raw += start
+        raw += sourceOut
+        raw.addAll(middle.drop(1).dropLast(1))
+        raw += targetOut
+        raw += end
 
-        // --- Facing: single cubic ---
-        if (isProperlyFacing(a, b, fromSide, toSide) &&
-            segmentClear(exit, entry, obstacleRects(a.id, b.id))
-        ) {
-            val c1 = PointF(start.x + n1.x * pull, start.y + n1.y * pull)
-            val c2 = PointF(end.x + n2.x * pull, end.y + n2.y * pull)
+        val square = mutableListOf<PointF>()
+        raw.forEach {
+            if (square.isEmpty() || hypot(it.x - square.last().x, it.y - square.last().y) > 1.5f)
+                square += it
+        }
+        if (square.size < 2) {
             val p = Path()
             p.moveTo(start.x, start.y)
-            p.cubicTo(c1.x, c1.y, c2.x, c2.y, end.x, end.y)
+            p.lineTo(end.x, end.y)
             return p
         }
 
-        // --- Wrap: exit → outside elbow(s) → entry, smoothed ---
-        val elbow = pickElbow(a, b, start, end, fromSide, toSide, exit, entry)
-        val pts = listOf(start, exit) + elbow + listOf(entry, end)
-        return smoothPipe(pts, n1, n2, stub)
-    }
-
-    private fun isProperlyFacing(
-        a: FlowElement, b: FlowElement,
-        fromSide: ConnectionSide, toSide: ConnectionSide,
-    ): Boolean {
-        val gap = 20f
-        return when {
-            fromSide == ConnectionSide.BOTTOM && toSide == ConnectionSide.TOP ->
-                a.y + a.height + gap < b.y
-            fromSide == ConnectionSide.TOP && toSide == ConnectionSide.BOTTOM ->
-                a.y - gap > b.y + b.height
-            fromSide == ConnectionSide.RIGHT && toSide == ConnectionSide.LEFT ->
-                a.x + a.width + gap < b.x
-            fromSide == ConnectionSide.LEFT && toSide == ConnectionSide.RIGHT ->
-                a.x - gap > b.x + b.width
-            else -> false
-        }
+        return pathFromSmoothPoints(chaikinSmooth(square, passes = 6))
     }
 
     /**
-     * Choose 1–2 elbow points fully outside both boxes.
-     * Prefers the shorter side so loops stay tight.
+     * Chaikin corner-cutting. Each pass replaces every segment with two points
+     * at 1/4 and 3/4; endpoints stay fixed. After several passes the polyline
+     * converges to a quadratic B-spline — no visible angles remain.
      */
-    private fun pickElbow(
-        a: FlowElement, b: FlowElement,
-        start: PointF, end: PointF,
-        fromSide: ConnectionSide, toSide: ConnectionSide,
-        exit: PointF, entry: PointF,
-    ): List<PointF> {
-        val pad = 26f
-        val L = min(a.x, b.x) - pad
-        val R = max(a.x + a.width, b.x + b.width) + pad
-        val T = min(a.y, b.y) - pad
-        val B = max(a.y + a.height, b.y + b.height) + pad
-
-        // Same face → U parallel to that face
-        if (fromSide == toSide) {
-            return when (fromSide) {
-                ConnectionSide.TOP -> listOf(PointF(exit.x, T), PointF(entry.x, T))
-                ConnectionSide.BOTTOM -> listOf(PointF(exit.x, B), PointF(entry.x, B))
-                ConnectionSide.LEFT -> listOf(PointF(L, exit.y), PointF(L, entry.y))
-                else -> listOf(PointF(R, exit.y), PointF(R, entry.y))
+    private fun chaikinSmooth(points: List<PointF>, passes: Int): List<PointF> {
+        if (points.size < 3) return points
+        var cur = points
+        repeat(passes) {
+            if (cur.size < 3) return@repeat
+            val next = ArrayList<PointF>(cur.size * 2)
+            next += cur.first() // pin start attachment
+            for (i in 0 until cur.lastIndex) {
+                val p0 = cur[i]
+                val p1 = cur[i + 1]
+                next += PointF(p0.x * 0.75f + p1.x * 0.25f, p0.y * 0.75f + p1.y * 0.25f)
+                next += PointF(p0.x * 0.25f + p1.x * 0.75f, p0.y * 0.25f + p1.y * 0.75f)
             }
+            next += cur.last() // pin end attachment
+            cur = next
         }
-
-        val fromVert = fromSide == ConnectionSide.TOP || fromSide == ConnectionSide.BOTTOM
-        val toVert = toSide == ConnectionSide.TOP || toSide == ConnectionSide.BOTTOM
-
-        if (fromVert != toVert) {
-            // Adjacent faces: single corner outside both boxes
-            val cx = if (fromVert) entry.x else exit.x
-            val cy = if (fromVert) exit.y else entry.y
-            // Push outside if inside a box
-            var x = cx
-            var y = cy
-            for (e in listOf(a, b)) {
-                if (x > e.x - pad && x < e.x + e.width + pad &&
-                    y > e.y - pad && y < e.y + e.height + pad
-                ) {
-                    // Move to the outside corner implied by the two faces
-                    x = when {
-                        fromSide == ConnectionSide.LEFT || toSide == ConnectionSide.LEFT -> L
-                        fromSide == ConnectionSide.RIGHT || toSide == ConnectionSide.RIGHT -> R
-                        else -> x
-                    }
-                    y = when {
-                        fromSide == ConnectionSide.TOP || toSide == ConnectionSide.TOP -> T
-                        fromSide == ConnectionSide.BOTTOM || toSide == ConnectionSide.BOTTOM -> B
-                        else -> y
-                    }
-                }
-            }
-            return listOf(PointF(x, y))
-        }
-
-        // Opposite faces, wrong order (e.g. top→bottom while A is above B)
-        // Route on the shorter side of the pair.
-        if (fromVert) {
-            val midX = (start.x + end.x) / 2f
-            val side = if (abs(midX - L) <= abs(R - midX)) L else R
-            return listOf(PointF(side, exit.y), PointF(side, entry.y))
-        } else {
-            val midY = (start.y + end.y) / 2f
-            val side = if (abs(midY - T) <= abs(B - midY)) T else B
-            return listOf(PointF(exit.x, side), PointF(entry.x, side))
-        }
+        return cur
     }
 
-    /**
-     * Convert waypoints into a continuous cubic pipe.
-     * Endpoint tangents locked to face normals; interior tangents from neighbors.
-     * G1 continuous — no kinks at joints.
-     */
-    private fun smoothPipe(
-        pts: List<PointF>,
-        n1: PointF,
-        n2: PointF,
-        stub: Float,
-    ): Path {
+    /** Dense Chaikin points → continuous Path (quad chain, angle-free). */
+    private fun pathFromSmoothPoints(pts: List<PointF>): Path {
         val p = Path()
         if (pts.isEmpty()) return p
         p.moveTo(pts[0].x, pts[0].y)
-        if (pts.size == 1) return p
         if (pts.size == 2) {
             p.lineTo(pts[1].x, pts[1].y)
             return p
         }
-
-        // Build tangents
-        val tan = Array(pts.size) { PointF(0f, 0f) }
-        val endTan = stub * 1.2f
-        tan[0] = PointF(n1.x * endTan, n1.y * endTan)
-        tan[pts.lastIndex] = PointF(n2.x * endTan, n2.y * endTan)
         for (i in 1 until pts.lastIndex) {
-            val dx = pts[i + 1].x - pts[i - 1].x
-            val dy = pts[i + 1].y - pts[i - 1].y
-            val len = hypot(dx, dy).coerceAtLeast(1f)
-            val seg = min(
-                hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y),
-                hypot(pts[i + 1].x - pts[i].x, pts[i + 1].y - pts[i].y)
-            )
-            // Higher factor → rounder bends (closer to hand-drawn pipes)
-            val s = seg * 0.45f
-            tan[i] = PointF(dx / len * s, dy / len * s)
+            val midX = (pts[i].x + pts[i + 1].x) * 0.5f
+            val midY = (pts[i].y + pts[i + 1].y) * 0.5f
+            p.quadTo(pts[i].x, pts[i].y, midX, midY)
         }
-
-        for (i in 0 until pts.lastIndex) {
-            val a = pts[i]
-            val b = pts[i + 1]
-            val ta = tan[i]
-            val tb = tan[i + 1]
-            p.cubicTo(
-                a.x + ta.x / 3f, a.y + ta.y / 3f,
-                b.x - tb.x / 3f, b.y - tb.y / 3f,
-                b.x, b.y
-            )
-        }
+        p.lineTo(pts.last().x, pts.last().y)
         return p
     }
 
