@@ -423,274 +423,159 @@ class FlowCanvasView(context: Context) : View(context) {
         return shapeBoundaryEndpoint(e,side,offset)
     }
 
-    private fun buildDynamicRoutedPath(
-        a:FlowElement,
-        b:FlowElement,
-        start:PointF,
-        end:PointF,
-        fromSide:ConnectionSide,
-        toSide:ConnectionSide,
-    ):Path {
-        // start/end are the actual automatically distributed attachment points
-        // on the selected faces. Every connector leaves its face on a short
-        // perpendicular stand-off (sourceOut/targetOut) before the router
-        // decides how to reach the other side; this keeps departure and
-        // arrival clean at every block regardless of relative position. The
-        // corner-avoiding route between the two stand-off points is then
-        // smoothed into one continuous curve; only if that smoothing would
-        // cut back through a block does this fall back to the older
-        // rounded-corner polyline.
-        val realObstacles=obstacleRects(a.id,b.id)
-        val sourceOut=offsetFromSide(start,fromSide,64f)
-        val targetOut=offsetFromSide(end,toSide,64f)
-        val selfA=expandedElementRect(a,48f)
-        val selfB=expandedElementRect(b,48f)
-        val obstacles=realObstacles+listOf(selfA,selfB)
-        // Recalculate the route from the CURRENT block geometry every time the
-        // canvas is drawn.  Stored routePoints are deliberately not used here: a
-        // moved block must never leave an old elbow pinned to the canvas.
-        val middle=visibilityRoute(sourceOut,targetOut,obstacles,0)
-        val raw=mutableListOf<PointF>()
-        raw+=start
-        raw+=sourceOut
-        raw.addAll(middle.drop(1).dropLast(1))
-        raw+=targetOut
-        raw+=end
-        val cleaned=mutableListOf<PointF>()
-        raw.forEach { if(cleaned.isEmpty() || hypot(it.x-cleaned.last().x,it.y-cleaned.last().y)>1f) cleaned+=it }
+    private fun adaptiveStub(distance: Float): Float =
+        // Short stubs keep the last segment flush with the shape so the arrow
+        // sits on the outline.  Scale a little with separation so long runs still
+        // look balanced.
+        (12f + (distance * 0.04f).coerceIn(0f, 16f)).coerceIn(10f, 28f)
 
-        val splineSegs=buildSplineSegments(cleaned,fromSide,toSide,realObstacles,selfA,selfB)
-        if(splineSegs.isNotEmpty() && fallbackSplineClear(splineSegs,realObstacles,selfA,selfB)) return segsToPath(splineSegs)
+    private fun sidesFaceEachOther(from: ConnectionSide, to: ConnectionSide): Boolean =
+        (from == ConnectionSide.BOTTOM && to == ConnectionSide.TOP) ||
+        (from == ConnectionSide.TOP && to == ConnectionSide.BOTTOM) ||
+        (from == ConnectionSide.RIGHT && to == ConnectionSide.LEFT) ||
+        (from == ConnectionSide.LEFT && to == ConnectionSide.RIGHT)
+
+    private fun normalOf(side: ConnectionSide): PointF = when (side) {
+        ConnectionSide.TOP -> PointF(0f, -1f)
+        ConnectionSide.RIGHT -> PointF(1f, 0f)
+        ConnectionSide.BOTTOM -> PointF(0f, 1f)
+        ConnectionSide.LEFT -> PointF(-1f, 0f)
+        else -> PointF(0f, 0f)
+    }
+
+    /**
+     * Preferred smooth routing:
+     *  - Facing sides + clear line-of-sight → single cubic Bézier (S/C curve).
+     *  - Otherwise → short-stub orthogonal wrap with large-radius corner rounding.
+     * Source and target are never treated as obstacles, so the path never
+     * “hooks” away from the attachment face at the last moment.
+     */
+    private fun buildDynamicRoutedPath(
+        a: FlowElement,
+        b: FlowElement,
+        start: PointF,
+        end: PointF,
+        fromSide: ConnectionSide,
+        toSide: ConnectionSide,
+    ): Path {
+        val dx = end.x - start.x
+        val dy = end.y - start.y
+        val dist = hypot(dx, dy)
+        val stub = adaptiveStub(dist)
+        val sourceOut = offsetFromSide(start, fromSide, stub)
+        val targetOut = offsetFromSide(end, toSide, stub)
+
+        // Only other blocks are obstacles; source/target keep a zero-margin
+        // exclusion so the final approach can stay on the face normal.
+        val obstacles = obstacleRects(a.id, b.id)
+
+        // Direct cubic when the chosen faces look at each other and nothing
+        // blocks the straight-ish corridor between the outer stubs.
+        if (sidesFaceEachOther(fromSide, toSide) && segmentClear(sourceOut, targetOut, obstacles)) {
+            return buildFacingCubic(start, end, fromSide, toSide, stub, dist)
+        }
+
+        // Same-side or adjacent: try a minimal wrap that still leaves short stubs.
+        val middle = visibilityRoute(sourceOut, targetOut, obstacles, 0)
+        val raw = mutableListOf<PointF>()
+        raw += start
+        raw += sourceOut
+        raw.addAll(middle.drop(1).dropLast(1))
+        raw += targetOut
+        raw += end
+        val cleaned = mutableListOf<PointF>()
+        raw.forEach {
+            if (cleaned.isEmpty() || hypot(it.x - cleaned.last().x, it.y - cleaned.last().y) > 1f)
+                cleaned += it
+        }
         return buildSmoothRoutePath(cleaned)
     }
 
-    private fun buildSmoothRoutePath(points:List<PointF>):Path {
-        val p=Path()
-        if(points.isEmpty()) return p
-        p.moveTo(points[0].x,points[0].y)
-        if(points.size==2){
-            p.lineTo(points[1].x,points[1].y)
+    /** Smooth cubic when exit and entry normals face each other. */
+    private fun buildFacingCubic(
+        start: PointF,
+        end: PointF,
+        fromSide: ConnectionSide,
+        toSide: ConnectionSide,
+        stub: Float,
+        dist: Float,
+    ): Path {
+        val n1 = normalOf(fromSide)
+        val n2 = normalOf(toSide)
+        // Control distance grows with separation so the curve stays gentle;
+        // clamped so very close blocks do not balloon outward.
+        val ctrl = (dist * 0.38f).coerceIn(stub * 1.6f, 120f)
+        val c1 = PointF(start.x + n1.x * ctrl, start.y + n1.y * ctrl)
+        val c2 = PointF(end.x + n2.x * ctrl, end.y + n2.y * ctrl)
+        val p = Path()
+        p.moveTo(start.x, start.y)
+        p.cubicTo(c1.x, c1.y, c2.x, c2.y, end.x, end.y)
+        return p
+    }
+
+    private fun buildSmoothRoutePath(points: List<PointF>): Path {
+        val p = Path()
+        if (points.isEmpty()) return p
+        p.moveTo(points[0].x, points[0].y)
+        if (points.size == 2) {
+            p.lineTo(points[1].x, points[1].y)
             return p
         }
-        // Keep the automatically selected route, but turn every corner into a
-        // generous quadratic bend.  This remains one continuous Path rather than
-        // a collection of separately drawn line segments.
-        val radius=34f
-        for(i in 1 until points.lastIndex){
-            val prev=points[i-1]; val cur=points[i]; val next=points[i+1]
-            val inLen=hypot(cur.x-prev.x,cur.y-prev.y)
-            val outLen=hypot(next.x-cur.x,next.y-cur.y)
-            if(inLen<1f || outLen<1f){ p.lineTo(cur.x,cur.y); continue }
-            val r=min(radius,min(inLen,outLen)*.42f)
-            val before=PointF(cur.x+(prev.x-cur.x)*r/inLen,cur.y+(prev.y-cur.y)*r/inLen)
-            val after=PointF(cur.x+(next.x-cur.x)*r/outLen,cur.y+(next.y-cur.y)*r/outLen)
-            p.lineTo(before.x,before.y)
-            p.quadTo(cur.x,cur.y,after.x,after.y)
+        // Larger radius produces the flowing pipe-like bends in the hand mock-up
+        // instead of the previous tight 34 px elbows.
+        val radius = 52f
+        for (i in 1 until points.lastIndex) {
+            val prev = points[i - 1]
+            val cur = points[i]
+            val next = points[i + 1]
+            val inLen = hypot(cur.x - prev.x, cur.y - prev.y)
+            val outLen = hypot(next.x - cur.x, next.y - cur.y)
+            if (inLen < 1f || outLen < 1f) {
+                p.lineTo(cur.x, cur.y)
+                continue
+            }
+            val r = min(radius, min(inLen, outLen) * 0.48f)
+            val before = PointF(
+                cur.x + (prev.x - cur.x) * r / inLen,
+                cur.y + (prev.y - cur.y) * r / inLen
+            )
+            val after = PointF(
+                cur.x + (next.x - cur.x) * r / outLen,
+                cur.y + (next.y - cur.y) * r / outLen
+            )
+            p.lineTo(before.x, before.y)
+            p.quadTo(cur.x, cur.y, after.x, after.y)
         }
-        p.lineTo(points.last().x,points.last().y)
+        p.lineTo(points.last().x, points.last().y)
         return p
-    }
-
-    // --- Smooth-curve connector routing helpers -----------------------------
-    // A small cubic-bezier segment used both for the single "direct" curve
-    // attempt and for the multi-segment spline built over a corner-avoiding
-    // route. Keeping both the same shape lets one pair of sampling/clearance
-    // helpers below serve both cases.
-    private data class CubicSeg(val p0:PointF,val c1:PointF,val c2:PointF,val p1:PointF)
-
-    private fun segsToPath(segs:List<CubicSeg>):Path{
-        val p=Path()
-        if(segs.isEmpty())return p
-        p.moveTo(segs[0].p0.x,segs[0].p0.y)
-        segs.forEach{ p.cubicTo(it.c1.x,it.c1.y,it.c2.x,it.c2.y,it.p1.x,it.p1.y) }
-        return p
-    }
-
-    private fun sampleCubic(p0:PointF,c1:PointF,c2:PointF,p1:PointF,steps:Int):List<PointF>{
-        val out=ArrayList<PointF>(steps+1)
-        for(i in 0..steps){
-            val t=i.toFloat()/steps; val mt=1f-t
-            val x=mt*mt*mt*p0.x+3f*mt*mt*t*c1.x+3f*mt*t*t*c2.x+t*t*t*p1.x
-            val y=mt*mt*mt*p0.y+3f*mt*mt*t*c1.y+3f*mt*t*t*c2.y+t*t*t*p1.y
-            out+=PointF(x,y)
-        }
-        return out
-    }
-
-    private fun outwardNormal(side:ConnectionSide):PointF=when(side){
-        ConnectionSide.TOP->PointF(0f,-1f)
-        ConnectionSide.RIGHT->PointF(1f,0f)
-        ConnectionSide.BOTTOM->PointF(0f,1f)
-        ConnectionSide.LEFT->PointF(-1f,0f)
-        else->PointF(0f,0f)
-    }
-
-    private fun catmullTangent(prev:PointF?,cur:PointF,next:PointF?):PointF{
-        val p=prev?:cur; val n=next?:cur
-        return PointF((n.x-p.x)/2f,(n.y-p.y)/2f)
-    }
-
-    private fun clampMagnitude(v:PointF,maxLen:Float):PointF{
-        val len=hypot(v.x,v.y)
-        if(len<=maxLen||len<0.0001f) return v
-        val s=maxLen/len
-        return PointF(v.x*s,v.y*s)
-    }
-
-    // Straight-line distance from a point to the nearest edge of a rect (0 if
-    // the point is inside it). Standard point-to-AABB distance.
-    private fun clearanceTo(p:PointF,r:RectF):Float{
-        val dx=max(max(r.left-p.x,0f),p.x-r.right)
-        val dy=max(max(r.top-p.y,0f),p.y-r.bottom)
-        return hypot(dx,dy)
-    }
-
-    private fun clearanceToObstacles(p:PointF,obstacles:List<RectF>):Float{
-        var best=Float.MAX_VALUE
-        for(r in obstacles){ val d=clearanceTo(p,r); if(d<best) best=d }
-        return best
-    }
-
-    // Turns a corner-avoiding waypoint list into one continuously curving
-    // spline instead of straight segments stitched together with small
-    // rounded fillets. The very first and last tangents are pinned to the
-    // perpendicular departure/arrival direction (so the connector still
-    // leaves and enters the block faces cleanly, and arrowheads still point
-    // the right way); every interior corner gets a Catmull-Rom tangent so the
-    // curve flows through it instead of bending sharply.
-    //
-    // Every tangent is capped by BOTH the length of its own adjacent
-    // segments AND how close that waypoint actually sits to an obstacle.
-    // Segment length alone isn't enough: a route that wraps all the way
-    // around a block (leave the top, go around the side, come back into the
-    // bottom) has long straight stretches meeting right at a tight corner
-    // hugging that block, and a tangent sized off the long straight stretch
-    // easily overshoots past the corner and back into the block it's routing
-    // around. Capping by real clearance keeps every corner inside the room
-    // it actually has.
-    //
-    // The waypoint right at a block's own edge AND the stand-off point next
-    // to it (sourceOut/targetOut, always exactly 64 units further out) are
-    // both measured against every obstacle except that block itself: a
-    // connector sitting on its own stand-off is departure, not a hazard, and
-    // treating it as one was clamping every ordinary connection down to a
-    // barely-visible curve. Only waypoints beyond that stand-off - genuine
-    // corners the router added to get around something - are judged by their
-    // real distance to both blocks.
-    private fun buildSplineSegments(points:List<PointF>,fromSide:ConnectionSide,toSide:ConnectionSide,realObstacles:List<RectF>,selfA:RectF,selfB:RectF):List<CubicSeg>{
-        val n=points.size
-        if(n<2)return emptyList()
-        val segLen=FloatArray(n-1)
-        for(i in 0 until n-1) segLen[i]=hypot(points[i+1].x-points[i].x,points[i+1].y-points[i].y)
-        val minTangent=4f
-        val tangents=arrayOfNulls<PointF>(n)
-        for(i in 0 until n){
-            val nearA=i==0||i==1
-            val nearB=i==n-1||i==n-2
-            val clrObstacles=ArrayList<RectF>(realObstacles.size+2)
-            clrObstacles.addAll(realObstacles)
-            if(!nearA) clrObstacles+=selfA
-            if(!nearB) clrObstacles+=selfB
-            val clr=clearanceToObstacles(points[i],clrObstacles)
-            tangents[i]=when(i){
-                0->{
-                    val out=outwardNormal(fromSide)
-                    val d=segLen[0]
-                    val cap=max(min(d*0.9f,clr*0.6f),minTangent)
-                    clampMagnitude(PointF(out.x*d*0.6f,out.y*d*0.6f),cap)
-                }
-                n-1->{
-                    val out=outwardNormal(toSide)
-                    val d=segLen[n-2]
-                    val cap=max(min(d*0.9f,clr*0.6f),minTangent)
-                    clampMagnitude(PointF(-out.x*d*0.6f,-out.y*d*0.6f),cap)
-                }
-                else->{
-                    val raw=catmullTangent(points[i-1],points[i],points[i+1])
-                    val cap=max(min(min(segLen[i-1],segLen[i])*0.5f,clr*0.6f),minTangent)
-                    clampMagnitude(raw,cap)
-                }
-            }
-        }
-        val segs=ArrayList<CubicSeg>(n-1)
-        for(i in 0 until n-1){
-            val p0=points[i]; val p1=points[i+1]
-            val t0=tangents[i]!!; val t1=tangents[i+1]!!
-            val c1=PointF(p0.x+t0.x/3f,p0.y+t0.y/3f)
-            val c2=PointF(p1.x-t1.x/3f,p1.y-t1.y/3f)
-            segs+=CubicSeg(p0,c1,c2,p1)
-        }
-        return segs
-    }
-
-    private fun segmentsIntersect(a:PointF,b:PointF,c:PointF,d:PointF):Boolean{
-        fun cross(o:PointF,p:PointF,q:PointF)=(p.x-o.x)*(q.y-o.y)-(p.y-o.y)*(q.x-o.x)
-        fun onSeg(p:PointF,q:PointF,r:PointF):Boolean{
-            if(abs(cross(p,q,r))>0.05f) return false
-            return r.x>=min(p.x,q.x)-0.05f&&r.x<=max(p.x,q.x)+0.05f&&r.y>=min(p.y,q.y)-0.05f&&r.y<=max(p.y,q.y)+0.05f
-        }
-        val d1=cross(a,b,c); val d2=cross(a,b,d)
-        val d3=cross(c,d,a); val d4=cross(c,d,b)
-        if(((d1>0&&d2<0)||(d1<0&&d2>0))&&((d3>0&&d4<0)||(d3<0&&d4>0))) return true
-        return onSeg(a,b,c)||onSeg(a,b,d)||onSeg(c,d,a)||onSeg(c,d,b)
-    }
-
-    // Belt-and-suspenders on top of the corner-length clamp above: samples
-    // the assembled curve and checks it never crosses itself. Clamping
-    // tangents prevents this in every case tried during development, but a
-    // curve that loops back on itself would look far worse than the plain
-    // rounded-corner fallback, so this is checked directly rather than
-    // trusted to always follow from the clamp.
-    private fun hasSelfIntersection(segs:List<CubicSeg>):Boolean{
-        val pts=ArrayList<PointF>()
-        segs.forEach { seg->
-            sampleCubic(seg.p0,seg.c1,seg.c2,seg.p1,16).forEach { p->
-                if(pts.isEmpty()||hypot(p.x-pts.last().x,p.y-pts.last().y)>0.05f) pts+=p
-            }
-        }
-        val n=pts.size
-        if(n<4) return false
-        for(i in 0 until n-1){
-            for(j in i+2 until n-1){
-                if(segmentsIntersect(pts[i],pts[i+1],pts[j],pts[j+1])) return true
-            }
-        }
-        return false
-    }
-
-    // A spline can bow outside the straight polyline it was drawn through, so
-    // before trusting it this re-checks against the same generous margins the
-    // router used to plan that polyline. A segment is exempt from a block's
-    // margin only when BOTH its endpoints sit in that block's near zone (the
-    // block's own edge and its stand-off point) - the same zone used above
-    // when capping tangents - since a connector is necessarily still close to
-    // its own block for that stretch, and that is departure, not collision.
-    private fun fallbackSplineClear(segs:List<CubicSeg>,realObstacles:List<RectF>,selfA:RectF,selfB:RectF):Boolean{
-        if(hasSelfIntersection(segs)) return false
-        val n=segs.size+1
-        segs.forEachIndexed { si,seg->
-            val pts=sampleCubic(seg.p0,seg.c1,seg.c2,seg.p1,14)
-            val p0Idx=si; val p1Idx=si+1
-            val segNearA=(p0Idx==0||p0Idx==1)&&(p1Idx==0||p1Idx==1)
-            val segNearB=(p0Idx==n-1||p0Idx==n-2)&&(p1Idx==n-1||p1Idx==n-2)
-            val checkList=ArrayList<RectF>(realObstacles.size+2)
-            checkList.addAll(realObstacles)
-            if(!segNearA) checkList+=selfA
-            if(!segNearB) checkList+=selfB
-            val lastI=pts.lastIndex
-            for(i in pts.indices){
-                if(si==0 && i==0) continue
-                if(si==segs.lastIndex && i==lastI) continue
-                val pt=pts[i]
-                for(r in checkList){ if(pt.x>r.left&&pt.x<r.right&&pt.y>r.top&&pt.y<r.bottom) return false }
-            }
-        }
-        return true
     }
 
     private fun buildRoutedPath(points:List<PointF>):Path{val p=Path();if(points.isEmpty())return p;if(points.size==1){p.moveTo(points[0].x,points[0].y);return p};val radius=28f;p.moveTo(points[0].x,points[0].y);for(i in 1 until points.lastIndex+1){val prev=points[i-1];val cur=points[i];val next=if(i<points.lastIndex)points[i+1]else null;if(next==null){p.lineTo(cur.x,cur.y);break};val inLen=hypot(cur.x-prev.x,cur.y-prev.y);val outLen=hypot(next.x-cur.x,next.y-cur.y);if(inLen<1f||outLen<1f){p.lineTo(cur.x,cur.y);continue};val r=min(radius,min(inLen,outLen)*.38f);val before=PointF(cur.x+(prev.x-cur.x)*r/inLen,cur.y+(prev.y-cur.y)*r/inLen);val after=PointF(cur.x+(next.x-cur.x)*r/outLen,cur.y+(next.y-cur.y)*r/outLen);p.lineTo(before.x,before.y);p.quadTo(cur.x,cur.y,after.x,after.y)};return p}
     private fun pathMidpoint(path:Path):PointF{val m=PathMeasure(path,false);if(m.length<=0f)return PointF();val pos=FloatArray(2);m.getPosTan(m.length/2f,pos,null);return PointF(pos[0],pos[1])}
-    private fun drawConnectionArrows(c:Canvas,path:Path,type:ArrowType){val m=PathMeasure(path,false);if(m.length<=1f)return;val pos=FloatArray(2);val tan=FloatArray(2);fun sample(d:Float):Pair<PointF,PointF>{m.getPosTan(d.coerceIn(0f,m.length),pos,tan);return PointF(pos[0],pos[1]) to PointF(tan[0],tan[1])};val end=sample(m.length);val start=sample(min(20f,m.length));when(type){ArrowType.END->drawArrow(c,end.first.x-end.second.x*8f,end.first.y-end.second.y*8f,end.first.x,end.first.y,ArrowType.END);ArrowType.BOTH->{drawArrow(c,end.first.x-end.second.x*8f,end.first.y-end.second.y*8f,end.first.x,end.first.y,ArrowType.END);drawArrow(c,start.first.x+start.second.x*8f,start.first.y+start.second.y*8f,start.first.x,start.first.y,ArrowType.END)};ArrowType.CIRCLE->{paint.style=Paint.Style.STROKE;paint.strokeWidth=3f;c.drawCircle(end.first.x,end.first.y,7f,paint)};ArrowType.DIAMOND->drawArrow(c,end.first.x-end.second.x*8f,end.first.y-end.second.y*8f,end.first.x,end.first.y,ArrowType.DIAMOND);else->Unit}}
+    private fun drawConnectionArrows(c:Canvas,path:Path,type:ArrowType){
+        val m=PathMeasure(path,false)
+        if(m.length<=1f)return
+        val pos=FloatArray(2);val tan=FloatArray(2)
+        fun sample(d:Float):Pair<PointF,PointF>{
+            m.getPosTan(d.coerceIn(0f,m.length),pos,tan)
+            return PointF(pos[0],pos[1]) to PointF(tan[0],tan[1])
+        }
+        // Pull-back is only enough to seat the arrow head; the path already ends
+        // on the shape outline, so a smaller offset keeps the tip flush.
+        val tip=5.5f
+        val end=sample(m.length)
+        val start=sample(min(18f,m.length))
+        when(type){
+            ArrowType.END->drawArrow(c,end.first.x-end.second.x*tip,end.first.y-end.second.y*tip,end.first.x,end.first.y,ArrowType.END)
+            ArrowType.BOTH->{
+                drawArrow(c,end.first.x-end.second.x*tip,end.first.y-end.second.y*tip,end.first.x,end.first.y,ArrowType.END)
+                drawArrow(c,start.first.x+start.second.x*tip,start.first.y+start.second.y*tip,start.first.x,start.first.y,ArrowType.END)
+            }
+            ArrowType.CIRCLE->{paint.style=Paint.Style.STROKE;paint.strokeWidth=3f;c.drawCircle(end.first.x,end.first.y,7f,paint)}
+            ArrowType.DIAMOND->drawArrow(c,end.first.x-end.second.x*tip,end.first.y-end.second.y*tip,end.first.x,end.first.y,ArrowType.DIAMOND)
+            else->Unit
+        }
+    }
     private fun drawArrow(c:Canvas,x1:Float,y1:Float,x2:Float,y2:Float,type:ArrowType){val ang=atan2(y2-y1,x2-x1);val len=20f;val p=Path();if(type==ArrowType.DIAMOND){p.moveTo(x2,y2);p.lineTo(x2-len*.8f*cos(ang-.5f),y2-len*.8f*sin(ang-.5f));p.lineTo(x2-len*cos(ang),y2-len*sin(ang));p.lineTo(x2-len*.8f*cos(ang+.5f),y2-len*.8f*sin(ang+.5f));p.close()}else{p.moveTo(x2,y2);p.lineTo(x2-len*cos(ang-.5f),y2-len*sin(ang-.5f));p.lineTo(x2-len*cos(ang+.5f),y2-len*sin(ang+.5f));p.close()};paint.style=Paint.Style.FILL;paint.color=if(type==ArrowType.DIAMOND)paint.color else paint.color;c.drawPath(p,paint)}
     private fun drawRepeatedArrows(c:Canvas,path:Path){val m=PathMeasure(path,false);val pos=FloatArray(2);val tan=FloatArray(2);var d=55f;while(d<m.length-12f){if(m.getPosTan(d,pos,tan))drawArrow(c,pos[0]-tan[0]*8f,pos[1]-tan[1]*8f,pos[0],pos[1],ArrowType.END);d+=70f}}
 
@@ -708,7 +593,9 @@ class FlowCanvasView(context: Context) : View(context) {
     private fun obstacleRects(a:String,b:String):List<RectF> =
         document.elements
             .filter { it.id != a && it.id != b }
-            .map { RectF(it.x - 40f, it.y - 40f, it.x + it.width + 40f, it.y + it.height + 40f) }
+            // Modest padding only on *other* blocks.  Source/target are never
+            // included, which eliminates the last-moment outward hook.
+            .map { RectF(it.x - 28f, it.y - 28f, it.x + it.width + 28f, it.y + it.height + 28f) }
 
     private fun expandedElementRect(e:FlowElement, margin:Float = 40f):RectF =
         RectF(e.x - margin, e.y - margin, e.x + e.width + margin, e.y + e.height + margin)
@@ -740,16 +627,15 @@ class FlowCanvasView(context: Context) : View(context) {
     private fun routeConnection(a:FlowElement,b:FlowElement,fromSide:ConnectionSide,toSide:ConnectionSide,gesture:List<PointF>):List<PointF>{
         val start=shapeBoundaryEndpoint(a,fromSide,0f)
         val end=shapeBoundaryEndpoint(b,toSide,0f)
-        val sourceOut=offsetFromSide(start,fromSide,64f)
-        val targetOut=offsetFromSide(end,toSide,64f)
+        val dist=hypot(end.x-start.x,end.y-start.y)
+        val stub=adaptiveStub(dist)
+        val sourceOut=offsetFromSide(start,fromSide,stub)
+        val targetOut=offsetFromSide(end,toSide,stub)
 
-        // The finger path is intentionally used only to choose the two faces.
-        // Once the finger is released, the connector is regenerated cleanly so
-        // accidental wiggles never become ugly permanent routing waypoints.
-        val obstacles=obstacleRects(a.id,b.id)+listOf(
-            expandedElementRect(a,48f),
-            expandedElementRect(b,48f)
-        )
+        // Finger path only chooses the faces; final geometry is recomputed cleanly.
+        // Source/target are excluded from obstacles so the last segment stays on
+        // the face normal and the arrow lands on the outline.
+        val obstacles=obstacleRects(a.id,b.id)
 
         val middle=visibilityRoute(sourceOut,targetOut,obstacles,gestureBias(gesture))
         val raw=mutableListOf<PointF>()
@@ -786,7 +672,7 @@ class FlowCanvasView(context: Context) : View(context) {
         nodes+=start
         nodes+=end
         obs.forEach { r ->
-            val gap=26f
+            val gap=10f
             nodes+=PointF(r.left-gap,r.top-gap)
             nodes+=PointF(r.right+gap,r.top-gap)
             nodes+=PointF(r.right+gap,r.bottom+gap)
