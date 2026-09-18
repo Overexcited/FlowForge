@@ -661,8 +661,6 @@ class MainActivity : Activity() {
         c.lineStyle==LineStyle.SOLID &&
         c.color==0xff475569.toInt() &&
         c.thickness==LineThickness.DEFAULT &&
-        c.fromSide==ConnectionSide.AUTO && c.toSide==ConnectionSide.AUTO &&
-        c.bendX==0f && c.bendY==0f && c.routePoints.isEmpty() &&
         c.labelColor==null && c.labelTextSize==TextSize.NORMAL &&
         !c.labelBold && !c.labelItalic && !c.labelUnderline &&
         c.labelFont==TextFont.SANS &&
