@@ -297,7 +297,7 @@ class MainActivity : Activity() {
             bar.addView(smallButton("Edit",com.flowforge.app.R.drawable.ic_pencil){showElementEditor(e)})
             bar.addView(smallButton("Connect"){canvas.beginConnectionMode()})
             bar.addView(smallButton("Clone"){cloneElement(e)})
-            bar.addView(smallButton("Reset"){resetElement(e)})
+            bar.addView(smallButton("Reset"){resetElement(e)}.apply{isEnabled=!isElementAtDefault(e);alpha=if(isEnabled)1f else 0.45f})
             bar.addView(smallButton("Delete"){deleteSelected()})
             bar.addView(smallButton("Save Block"){saveAsset(e)})
             bar.addView(Space(this), LinearLayout.LayoutParams(0,1,1f))
@@ -632,10 +632,56 @@ class MainActivity : Activity() {
                 canvas.beginCustomShapeMode(e.id)
             }
         }.setNeutralButton("Reset default"){_,_->resetElement(e)}.setNegativeButton("Cancel",null).create()
-        dialog.setOnShowListener{val textColor=if(dark)Color.WHITE else 0xff172033.toInt();dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(textColor);dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.setTextColor(textColor);dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.setTextColor(textColor);dialog.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(if(dark)0xff0f172a.toInt() else Color.WHITE))}
+        dialog.setOnShowListener{
+            val textColor=if(dark)Color.WHITE else 0xff172033.toInt()
+            val disabledColor=if(dark)0xff64748b.toInt() else 0xff94a3b8.toInt()
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(textColor)
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.setTextColor(textColor)
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.apply{
+                isEnabled=!isElementAtDefault(e)
+                setTextColor(if(isEnabled)textColor else disabledColor)
+            }
+            dialog.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(if(dark)0xff0f172a.toInt() else Color.WHITE))
+        }
         dialog.show()
     }
-    private fun resetElement(e:FlowElement){val before=doc.deepCopy();e.shape=FlowElement.defaultShape(e.type);e.width=270f;e.height=135f;e.outlineThickness=LineThickness.DEFAULT;e.outlineLineStyle=LineStyle.SOLID;e.outlineColor=null;e.fillColor=null;e.labelColor=null;e.labelTextSize=TextSize.MEDIUM;e.labelBold=false;e.labelItalic=false;e.labelUnderline=false;e.labelFont=TextFont.SANS;e.customPoints.clear();history.record(before,doc.deepCopy());canvas.invalidate();updateUi()}
+    private fun isElementAtDefault(e:FlowElement):Boolean =
+        e.shape==FlowElement.defaultShape(e.type) &&
+        e.width==337.5f && e.height==168.75f &&
+        e.outlineThickness==LineThickness.DEFAULT &&
+        e.outlineLineStyle==LineStyle.SOLID &&
+        e.outlineColor==null && e.fillColor==null && e.labelColor==null &&
+        e.labelTextSize==TextSize.MEDIUM &&
+        !e.labelBold && !e.labelItalic && !e.labelUnderline &&
+        e.labelFont==TextFont.SANS && e.customPoints.isEmpty()
+
+    private fun isConnectionAtDefault(c:FlowConnection):Boolean =
+        c.arrowType==ArrowType.END &&
+        c.lineStyle==LineStyle.SOLID &&
+        c.color==0xff475569.toInt() &&
+        c.thickness==LineThickness.DEFAULT &&
+        c.fromSide==ConnectionSide.AUTO && c.toSide==ConnectionSide.AUTO &&
+        c.bendX==0f && c.bendY==0f && c.routePoints.isEmpty() &&
+        c.labelColor==null && c.labelTextSize==TextSize.NORMAL &&
+        !c.labelBold && !c.labelItalic && !c.labelUnderline &&
+        c.labelFont==TextFont.SANS
+
+    private fun resetElement(e:FlowElement){val before=doc.deepCopy();e.shape=FlowElement.defaultShape(e.type);e.width=337.5f;e.height=168.75f;e.outlineThickness=LineThickness.DEFAULT;e.outlineLineStyle=LineStyle.SOLID;e.outlineColor=null;e.fillColor=null;e.labelColor=null;e.labelTextSize=TextSize.MEDIUM;e.labelBold=false;e.labelItalic=false;e.labelUnderline=false;e.labelFont=TextFont.SANS;e.customPoints.clear();history.record(before,doc.deepCopy());canvas.invalidate();updateUi()}
+
+    private fun resetConnection(c:FlowConnection){
+        val before=doc.deepCopy()
+        c.arrowType=ArrowType.END
+        c.lineStyle=LineStyle.SOLID
+        c.color=0xff475569.toInt()
+        c.thickness=LineThickness.DEFAULT
+        c.labelColor=null
+        c.labelTextSize=TextSize.NORMAL
+        c.labelBold=false
+        c.labelItalic=false
+        c.labelUnderline=false
+        c.labelFont=TextFont.SANS
+        history.record(before,doc.deepCopy());documentDirty=true;canvas.invalidate();updateUi()
+    }
 
     private fun thicknessSpinner(current:LineThickness):Spinner {
         val names=listOf("Default","Medium","Large"); val dark=uiDark
@@ -887,8 +933,13 @@ class MainActivity : Activity() {
             }.setNegativeButton("Cancel",null).create()
         dialog.setOnShowListener{
             val textColor=if(uiDark)Color.WHITE else 0xff172033.toInt()
+            val disabledColor=if(uiDark)0xff64748b.toInt() else 0xff94a3b8.toInt()
             dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(textColor)
             dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.setTextColor(textColor)
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.apply{
+                isEnabled=!isConnectionAtDefault(c)
+                setTextColor(if(isEnabled)textColor else disabledColor)
+            }
             dialog.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(0xff0f172a.toInt()))
         }
         dialog.show()
