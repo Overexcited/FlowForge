@@ -456,7 +456,7 @@ class MainActivity : Activity() {
     }
 
     private fun addElement(){
-        val e=FlowElement(type=ElementType.PROCESS,x=260f+doc.elements.size*35f,y=220f+doc.elements.size*25f,width=270f,height=135f,label="")
+        val e=FlowElement(type=ElementType.PROCESS,x=260f+doc.elements.size*35f,y=220f+doc.elements.size*25f,width=337.5f,height=168.75f,label="")
         // New elements start as the standard rounded block and can be reshaped later.
         val before=doc.deepCopy(); doc.elements+=e
         canvas.selectedElementId=e.id; canvas.selectedConnectionId=null
@@ -506,6 +506,49 @@ class MainActivity : Activity() {
         history.record(before,doc.deepCopy()); documentDirty=true; canvas.finishCustomShapeMode(); canvas.invalidate(); updateUi()
     }
 
+    private fun editorLabelNotesTabs(labelEdit:EditText, labelInitial:String, notesInitial:String, dark:Boolean, onSwitch:(Int,String,String)->Unit):LinearLayout {
+        var active=0
+        var labelValue=labelInitial
+        var notesValue=notesInitial
+        val activeColor=if(dark)Color.WHITE else 0xff172033.toInt()
+        val inactiveColor=if(dark)0xff64748b.toInt() else 0xff94a3b8.toInt()
+        val tabs=LinearLayout(this).apply{
+            orientation=LinearLayout.HORIZONTAL
+            gravity=Gravity.CENTER_VERTICAL
+            setPadding(0,dp(10),0,0)
+        }
+        lateinit var labelTab:TextView
+        lateinit var notesTab:TextView
+        fun updateTabColors(){
+            labelTab.setTextColor(if(active==0)activeColor else inactiveColor)
+            notesTab.setTextColor(if(active==1)activeColor else inactiveColor)
+        }
+        fun tab(text:String,index:Int)=TextView(this).apply{
+            this.text=text
+            textSize=13f
+            setTextColor(if(index==active)activeColor else inactiveColor)
+            includeFontPadding=false
+            setPadding(0,0,dp(14),dp(3))
+            isClickable=true
+            setOnClickListener{
+                if(active==index)return@setOnClickListener
+                if(active==0)labelValue=labelEdit.text.toString() else notesValue=labelEdit.text.toString()
+                active=index
+                labelEdit.setText(if(active==0)labelValue else notesValue)
+                labelEdit.setSelection(labelEdit.text.length)
+                updateTabColors()
+                onSwitch(active,labelValue,notesValue)
+                labelEdit.requestFocus()
+            }
+        }
+        labelTab=tab("Label",0)
+        notesTab=tab("Notes",1)
+        tabs.addView(labelTab)
+        tabs.addView(notesTab)
+        updateTabColors()
+        return tabs
+    }
+
     private fun showElementEditor(e:FlowElement){
         val dark=uiDark
         val box=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(22),dp(6),dp(22),dp(4));background=GradientDrawable().apply{cornerRadius=dp(18).toFloat();setColor(if(dark)0xff0f172a.toInt() else Color.WHITE)}}
@@ -526,7 +569,14 @@ class MainActivity : Activity() {
             if(android.os.Build.VERSION.SDK_INT>=21)backgroundTintList=android.content.res.ColorStateList.valueOf(if(dark)0xff64748b.toInt() else 0xff94a3b8.toInt())
         }
         val label=edit(e.label,"",3,true)
-        val notes=edit(e.notes,"Metadata / notes",3,true)
+        var editorLabelValue=e.label
+        var editorNotesValue=e.notes
+        var editorField=0
+        val labelNotesTabs=editorLabelNotesTabs(label,e.label,e.notes,dark){field,labelValue,notesValue->
+            editorLabelValue=labelValue
+            editorNotesValue=notesValue
+            editorField=field
+        }
         val shapeEntries=listOf(
             ShapeType.RECTANGLE, ShapeType.ROUNDED, ShapeType.EXTRA_ROUNDED,
             ShapeType.OVAL, ShapeType.TRIANGLE, ShapeType.STAR, ShapeType.CLOUD,
@@ -551,7 +601,7 @@ class MainActivity : Activity() {
                 override fun getDropDownView(position:Int,convertView:View?,parent:ViewGroup):View{return super.getDropDownView(position,convertView,parent).apply{setBackgroundColor(if(dark)0xff1e293b.toInt() else Color.WHITE);(this as? TextView)?.apply{setTextColor(if(dark)Color.WHITE else 0xff172033.toInt());setPadding(dp(14),dp(10),dp(14),dp(10));alpha=1f}}}
             };setSelection(if(e.customPoints.size>=3) shapeEntries.size else shapeEntries.indexOf(e.shape).coerceAtLeast(0));setBackgroundColor(if(dark)0xff1e293b.toInt() else 0xfff1f5f9.toInt())
         }
-        box.addView(editorLabel("Label"));box.addView(label)
+        box.addView(labelNotesTabs);box.addView(label)
         box.addView(editorLabel("Label Color"));box.addView(labelColorSpinner)
         box.addView(editorLabel("Text size"));box.addView(labelTextSizeSpinner)
         box.addView(editorLabel("Font"));box.addView(labelFontSpinner)
@@ -561,10 +611,11 @@ class MainActivity : Activity() {
         box.addView(editorLabel("Outline type"));box.addView(outlineStyleSpinner)
         box.addView(editorLabel("Outline Color"));box.addView(outlineSpinner)
         box.addView(editorLabel("Fill colour"));box.addView(fillSpinner)
-        box.addView(editorLabel("Notes"));box.addView(notes)
         val scroll=ScrollView(this).apply{isFillViewport=true;addView(box)}
         val dialog=dialogBuilder().setTitle("Edit Block").setView(scroll).setPositiveButton("Save"){_,_->
-            val before=doc.deepCopy();e.label=label.text.toString();e.notes=notes.text.toString();e.outlineThickness=thicknesses[thicknessSpinner.selectedItemPosition];e.outlineLineStyle=LineStyle.values()[outlineStyleSpinner.selectedItemPosition]
+            if(editorField==0) editorLabelValue=label.text.toString() else editorNotesValue=label.text.toString()
+            val before=doc.deepCopy()
+            e.label=editorLabelValue;e.notes=editorNotesValue;e.outlineThickness=thicknesses[thicknessSpinner.selectedItemPosition];e.outlineLineStyle=LineStyle.values()[outlineStyleSpinner.selectedItemPosition]
             e.outlineColor=outlineColors().values.elementAt(outlineSpinner.selectedItemPosition)
             e.labelColor=labelColors().values.elementAt(labelColorSpinner.selectedItemPosition)
             e.labelTextSize=TextSize.values()[labelTextSizeSpinner.selectedItemPosition]
@@ -775,7 +826,14 @@ class MainActivity : Activity() {
             if(android.os.Build.VERSION.SDK_INT>=21) backgroundTintList=android.content.res.ColorStateList.valueOf(if(dark)0xff64748b.toInt() else 0xff94a3b8.toInt())
         }
         val label=edit(c.label,"Line label",3,true)
-        val notes=edit(c.notes,"Line metadata / notes",3,true)
+        var editorLabelValue=c.label
+        var editorNotesValue=c.notes
+        var editorField=0
+        val labelNotesTabs=editorLabelNotesTabs(label,c.label,c.notes,dark){field,labelValue,notesValue->
+            editorLabelValue=labelValue
+            editorNotesValue=notesValue
+            editorField=field
+        }
         val arrows=Spinner(this).apply{
             adapter=object: ArrayAdapter<String>(this@MainActivity,android.R.layout.simple_spinner_item,ArrowType.values().map{it.name.lowercase().replaceFirstChar{c->c.uppercase()}}){
                 override fun getView(position:Int,convertView:View?,parent:ViewGroup):View{return super.getView(position,convertView,parent).apply{setBackgroundColor(if(dark)0xff1e293b.toInt() else Color.WHITE);(this as? TextView)?.setTextColor(if(dark)Color.WHITE else 0xff172033.toInt())}}
@@ -799,12 +857,11 @@ class MainActivity : Activity() {
         val labelStyleChecks=textStyleChecks(c.labelBold,c.labelItalic,c.labelUnderline,dark)
         val thickness=thicknessSpinner(c.thickness)
 
-        box.addView(editorLabel("Label"));box.addView(label)
+        box.addView(labelNotesTabs);box.addView(label)
         box.addView(editorLabel("Label Color"));box.addView(labelColor)
         box.addView(editorLabel("Text size"));box.addView(labelTextSize)
         box.addView(editorLabel("Font"));box.addView(labelFont)
         box.addView(editorLabel("Text style"));box.addView(labelStyleChecks)
-        box.addView(editorLabel("Notes"));box.addView(notes)
         box.addView(editorLabel("Arrow"));box.addView(arrows)
         box.addView(editorLabel("Line style"));box.addView(styles)
         box.addView(editorLabel("Line thickness"));box.addView(thickness)
@@ -814,7 +871,8 @@ class MainActivity : Activity() {
         val dialog=dialogBuilder().setTitle("Edit connection").setView(scroll)
             .setPositiveButton("Save"){_,_->
                 val before=doc.deepCopy()
-                c.label=label.text.toString();c.notes=notes.text.toString()
+                if(editorField==0) editorLabelValue=label.text.toString() else editorNotesValue=label.text.toString()
+                c.label=editorLabelValue;c.notes=editorNotesValue
                 c.arrowType=ArrowType.values()[arrows.selectedItemPosition]
                 c.lineStyle=LineStyle.values()[styles.selectedItemPosition]
                 c.thickness=LineThickness.values()[thickness.selectedItemPosition]
