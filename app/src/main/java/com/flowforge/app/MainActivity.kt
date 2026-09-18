@@ -653,7 +653,8 @@ class MainActivity : Activity() {
         e.outlineColor==null && e.fillColor==null && e.labelColor==null &&
         e.labelTextSize==TextSize.MEDIUM &&
         !e.labelBold && !e.labelItalic && !e.labelUnderline &&
-        e.labelFont==TextFont.SANS && e.customPoints.isEmpty()
+        e.labelFont==TextFont.SANS && e.customPoints.isEmpty() &&
+        e.label.isEmpty() && e.notes.isEmpty()
 
     private fun isConnectionAtDefault(c:FlowConnection):Boolean =
         c.arrowType==ArrowType.END &&
@@ -664,9 +665,10 @@ class MainActivity : Activity() {
         c.bendX==0f && c.bendY==0f && c.routePoints.isEmpty() &&
         c.labelColor==null && c.labelTextSize==TextSize.NORMAL &&
         !c.labelBold && !c.labelItalic && !c.labelUnderline &&
-        c.labelFont==TextFont.SANS
+        c.labelFont==TextFont.SANS &&
+        c.label.isEmpty() && c.notes.isEmpty()
 
-    private fun resetElement(e:FlowElement){val before=doc.deepCopy();e.shape=FlowElement.defaultShape(e.type);e.width=337.5f;e.height=168.75f;e.outlineThickness=LineThickness.DEFAULT;e.outlineLineStyle=LineStyle.SOLID;e.outlineColor=null;e.fillColor=null;e.labelColor=null;e.labelTextSize=TextSize.MEDIUM;e.labelBold=false;e.labelItalic=false;e.labelUnderline=false;e.labelFont=TextFont.SANS;e.customPoints.clear();history.record(before,doc.deepCopy());canvas.invalidate();updateUi()}
+    private fun resetElement(e:FlowElement){val before=doc.deepCopy();e.shape=FlowElement.defaultShape(e.type);e.width=337.5f;e.height=168.75f;e.outlineThickness=LineThickness.DEFAULT;e.outlineLineStyle=LineStyle.SOLID;e.outlineColor=null;e.fillColor=null;e.labelColor=null;e.labelTextSize=TextSize.MEDIUM;e.labelBold=false;e.labelItalic=false;e.labelUnderline=false;e.labelFont=TextFont.SANS;e.label="";e.notes="";e.customPoints.clear();history.record(before,doc.deepCopy());canvas.invalidate();updateUi()}
 
     private fun resetConnection(c:FlowConnection){
         val before=doc.deepCopy()
@@ -680,6 +682,8 @@ class MainActivity : Activity() {
         c.labelItalic=false
         c.labelUnderline=false
         c.labelFont=TextFont.SANS
+        c.label=""
+        c.notes=""
         history.record(before,doc.deepCopy());documentDirty=true;canvas.invalidate();updateUi()
     }
 
@@ -930,7 +934,7 @@ class MainActivity : Activity() {
                 c.labelItalic=(labelStyleChecks.getChildAt(1) as CheckBox).isChecked
                 c.labelUnderline=(labelStyleChecks.getChildAt(2) as CheckBox).isChecked
                 history.record(before,doc.deepCopy());documentDirty=true;canvas.invalidate();updateUi()
-            }.setNegativeButton("Cancel",null).create()
+            }.setNeutralButton("Reset default"){_,_->resetConnection(c)}.setNegativeButton("Cancel",null).create()
         dialog.setOnShowListener{
             val textColor=if(uiDark)Color.WHITE else 0xff172033.toInt()
             val disabledColor=if(uiDark)0xff64748b.toInt() else 0xff94a3b8.toInt()
