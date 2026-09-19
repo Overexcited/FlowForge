@@ -107,10 +107,6 @@ class FlowCanvasView(context: Context) : View(context) {
         val top = this.height - height - margin
         val rect = RectF(left, top, this.width - margin, this.height - margin)
 
-        paint.style = Paint.Style.FILL
-        paint.color = if (darkMode) 0xB51E293B.toInt() else 0xB5FFFFFF.toInt()
-        c.drawRoundRect(rect, 8f * density, 8f * density, paint)
-
         val iconLeft = left + margin
         val iconTop = top + (height - iconSize) / 2f
         paint.style = Paint.Style.STROKE
