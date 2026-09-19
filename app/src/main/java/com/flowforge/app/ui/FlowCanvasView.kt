@@ -86,6 +86,42 @@ class FlowCanvasView(context: Context) : View(context) {
         c.save(); c.translate(panX, panY); c.scale(scale, scale)
         drawContent(c, true)
         c.restore()
+        drawZoomIndicator(c)
+    }
+
+    private fun drawZoomIndicator(c: Canvas) {
+        val density = resources.displayMetrics.density
+        val margin = 12f * density
+        val iconSize = 15f * density
+        val gap = 6f * density
+        val textSize = 12f * density
+        val percent = "${round(scale * 100f).toInt()}%"
+
+        textPaint.typeface = Typeface.DEFAULT
+        textPaint.textSize = textSize
+        textPaint.flags = Paint.ANTI_ALIAS_FLAG
+        val textWidth = textPaint.measureText(percent)
+        val width = margin + iconSize + gap + textWidth + margin
+        val height = 30f * density
+        val left = this.width - width - margin
+        val top = this.height - height - margin
+        val rect = RectF(left, top, this.width - margin, this.height - margin)
+
+        paint.style = Paint.Style.FILL
+        paint.color = if (darkMode) 0xB51E293B.toInt() else 0xB5FFFFFF.toInt()
+        c.drawRoundRect(rect, 8f * density, 8f * density, paint)
+
+        val iconLeft = left + margin
+        val iconTop = top + (height - iconSize) / 2f
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = 1.7f * density
+        paint.strokeCap = Paint.Cap.ROUND
+        paint.color = if (darkMode) 0xD9FFFFFF.toInt() else 0xD9172033.toInt()
+        c.drawCircle(iconLeft + iconSize * 0.42f, iconTop + iconSize * 0.42f, iconSize * 0.30f, paint)
+        c.drawLine(iconLeft + iconSize * 0.64f, iconTop + iconSize * 0.64f, iconLeft + iconSize * 0.91f, iconTop + iconSize * 0.91f, paint)
+
+        textPaint.color = if (darkMode) 0xE6FFFFFF.toInt() else 0xE6172033.toInt()
+        c.drawText(percent, iconLeft + iconSize + gap, top + height / 2f - (textPaint.ascent() + textPaint.descent()) / 2f, textPaint)
     }
     fun drawContentForExport(c: Canvas) { drawContent(c, false) }
 
