@@ -165,9 +165,12 @@ class FlowCanvasView(context: Context) : View(context) {
         // blocks, connections or grid lines. No larger invisible menu rectangle
         // is painted over the canvas.
         if (includeSelection && popupOcclusionRects.isNotEmpty()) {
+            // Paint the exact popup footprint over the canvas. The popup itself
+            // supplies the rounded buttons and the tiny opaque gaps; this mask
+            // prevents the canvas/grid/blocks from appearing through either.
             paint.pathEffect = null
             paint.style = Paint.Style.FILL
-            paint.color = if (darkMode) Color.rgb(15, 23, 42) else Color.WHITE
+            paint.color = if (darkMode) Color.rgb(30, 41, 59) else Color.rgb(241, 245, 249)
             popupOcclusionRects.forEach { r ->
                 val mask=RectF(
                     (r.left-panX)/scale,

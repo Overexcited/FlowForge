@@ -364,47 +364,79 @@ class MainActivity : Activity() {
         val scaledDensity=resources.displayMetrics.scaledDensity
         val horizontalPadding=dp(14)
         val buttonHeight=dp(48)
-        val buttonGap=dp(4)
-        val popupPadding=dp(6)
+        val interButtonGap=dp(3)
+        val separatorHeight=dp(7)
+        val menuBackground=if(dark)0xff1e293b.toInt() else 0xfff1f5f9.toInt()
+        val separatorColor=if(dark)0xff475569.toInt() else 0xffcbd5e1.toInt()
 
-        // Match every item to the width of the widest item in this menu. This
-        // preserves the existing natural width while making the menu visually
-        // uniform.
+        // Size every item to the widest label in THIS menu only. The popup
+        // itself is exactly this width; there is no full-screen menu container.
         val menuButtonWidth = items.maxOf { label ->
             val measurePaint=Paint(Paint.ANTI_ALIAS_FLAG).apply { textSize=16f*scaledDensity }
             ceil(measurePaint.measureText(label)).toInt()+horizontalPadding*2
         }
 
-        val outer=LinearLayout(this).apply{
-            orientation=LinearLayout.VERTICAL
-            setPadding(popupPadding,popupPadding,popupPadding,popupPadding)
+        val outer=FrameLayout(this).apply{
             setBackgroundColor(Color.TRANSPARENT)
         }
         val listBox=LinearLayout(this).apply{
             orientation=LinearLayout.VERTICAL
             setBackgroundColor(Color.TRANSPARENT)
         }
+        outer.addView(listBox,FrameLayout.LayoutParams(menuButtonWidth,FrameLayout.LayoutParams.WRAP_CONTENT))
+
+        fun addGap(height:Int, drawSeparator:Boolean=false){
+            val gap=View(this).apply{
+                setBackgroundColor(menuBackground)
+                if(drawSeparator) {
+                    background=object:android.graphics.drawable.Drawable(){
+                        private val fill=Paint(Paint.ANTI_ALIAS_FLAG)
+                        override fun draw(c:Canvas){
+                            fill.style=Paint.Style.FILL
+                            fill.color=menuBackground
+                            c.drawRect(bounds,fill)
+                            fill.color=separatorColor
+                            val lineH=dp(2)
+                            val y=(bounds.top+bounds.bottom-lineH)/2f
+                            c.drawRect(bounds.left+dp(1),y,bounds.right-dp(1),y+lineH,fill)
+                        }
+                        override fun setAlpha(alpha:Int){}
+                        override fun setColorFilter(filter:android.graphics.ColorFilter?){}
+                        @Deprecated("Deprecated in Android API") override fun getOpacity():Int=android.graphics.PixelFormat.TRANSLUCENT
+                    }
+                }
+            }
+            listBox.addView(gap,LinearLayout.LayoutParams(menuButtonWidth,height))
+        }
+
         items.forEachIndexed{index,label->
-            if(index in separatorBefore) listBox.addView(View(this).apply{
-                setBackgroundColor(if(dark)0xff475569.toInt() else 0xffcbd5e1.toInt())
-            },LinearLayout.LayoutParams(menuButtonWidth,dp(2)).apply{setMargins(0,dp(2),0,dp(2))})
+            if(index>0){
+                if(index in separatorBefore) addGap(separatorHeight,true)
+                else addGap(interButtonGap)
+            }
             listBox.addView(TextView(this).apply{
                 text=label; textSize=16f; gravity=Gravity.CENTER_VERTICAL; includeFontPadding=false; isSingleLine=true
                 setTextColor(if(dark)Color.WHITE else 0xff172033.toInt())
                 setPadding(horizontalPadding,0,horizontalPadding,0)
                 background=GradientDrawable().apply{
                     cornerRadius=dp(9).toFloat()
-                    setColor(if(dark)0xff1e293b.toInt() else 0xfff1f5f9.toInt())
+                    setColor(menuBackground)
                     setStroke(dp(1),if(dark)0xff334155.toInt() else 0xffe2e8f0.toInt())
                 }
                 setOnClickListener{popup.dismiss();onChoice(index)}
-            },LinearLayout.LayoutParams(menuButtonWidth,buttonHeight).apply{setMargins(0,buttonGap/2,0,buttonGap/2)})
+            },LinearLayout.LayoutParams(menuButtonWidth,buttonHeight))
         }
-        val totalHeight = popupPadding*2 + items.size*buttonHeight + items.size*buttonGap + separatorBefore.size*dp(6)
-        outer.addView(listBox,LinearLayout.LayoutParams(menuButtonWidth,totalHeight-popupPadding*2))
-        popup=PopupWindow(outer,menuButtonWidth+popupPadding*2,totalHeight,true).apply{
+
+        outer.measure(
+            View.MeasureSpec.makeMeasureSpec(menuButtonWidth,View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0,View.MeasureSpec.UNSPECIFIED)
+        )
+        val totalHeight=outer.measuredHeight
+        popup=PopupWindow(outer,menuButtonWidth,totalHeight,true).apply{
             setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
-            elevation=dp(12).toFloat(); isOutsideTouchable=true
+            elevation=dp(12).toFloat()
+            isOutsideTouchable=true
+            isClippingEnabled=true
         }
 
         fun installPopupOcclusion() {
@@ -414,26 +446,21 @@ class MainActivity : Activity() {
                 listBox.getLocationOnScreen(listLoc)
                 canvas.getLocationOnScreen(canvasLoc)
 
-                // Only mask the actual button footprints and their tiny gaps.
-                // The rest of the popup remains transparent, so the canvas is
-                // never visually covered by an invisible menu panel.
-                val masks=mutableListOf<RectF>()
-                for(i in 0 until listBox.childCount){
-                    val child=listBox.getChildAt(i)
-                    if(child is TextView){
-                        val left=listLoc[0]+child.left-canvasLoc[0]
-                        val top=listLoc[1]+child.top-buttonGap/2-canvasLoc[1]
-                        val right=listLoc[0]+child.right-canvasLoc[0]
-                        val bottom=listLoc[1]+child.bottom+buttonGap/2-canvasLoc[1]
-                        masks += RectF(left.toFloat(),top.toFloat(),right.toFloat(),bottom.toFloat())
-                    }
-                }
-                canvas.setPopupOcclusionRects(masks)
+                // Mask only the popup's exact footprint, including the tiny
+                // inter-button gaps. Nothing outside the menu rectangle is
+                // occluded, so the canvas remains fully visible elsewhere.
+                val rect=RectF(
+                    (listLoc[0]-canvasLoc[0]).toFloat(),
+                    (listLoc[1]-canvasLoc[1]).toFloat(),
+                    (listLoc[0]+listBox.width-canvasLoc[0]).toFloat(),
+                    (listLoc[1]+listBox.height-canvasLoc[1]).toFloat()
+                )
+                canvas.setPopupOcclusionRects(listOf(rect))
             }
         }
         popup.setOnDismissListener { canvas.setPopupOcclusionRects(emptyList()) }
         if(anchor!=null) {
-            popup.showAsDropDown(anchor,-popupPadding,dp(2))
+            popup.showAsDropDown(anchor,0,dp(2))
             installPopupOcclusion()
         } else {
             popup.showAtLocation(window.decorView,Gravity.CENTER,0,0)
