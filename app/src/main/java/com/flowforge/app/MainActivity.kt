@@ -398,7 +398,7 @@ class MainActivity : Activity() {
                             fill.color=separatorColor
                             val lineH=dp(2)
                             val y=(bounds.top+bounds.bottom-lineH)/2f
-                            c.drawRect(bounds.left+dp(1),y,bounds.right-dp(1),y+lineH,fill)
+                            c.drawRect((bounds.left+dp(1)).toFloat(),y,(bounds.right-dp(1)).toFloat(),y+lineH.toFloat(),fill)
                         }
                         override fun setAlpha(alpha:Int){}
                         override fun setColorFilter(filter:android.graphics.ColorFilter?){}

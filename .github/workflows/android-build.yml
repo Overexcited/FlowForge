@@ -1,4 +1,4 @@
-name: Build FlowForge v0.2.18
+name: Build FlowForge v0.2.19
 on:
   push:
   pull_request:
