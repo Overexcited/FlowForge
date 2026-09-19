@@ -41,6 +41,8 @@ class MainActivity : Activity() {
     private var redoButton: Button? = null
     private var menuButton: Button? = null
     private var addButton: Button? = null
+    private lateinit var rootView: FrameLayout
+    private var activeMenuView: View? = null
     private var pendingText = ""
     private var documentName = "Untitled"
     private var documentUri: Uri? = null
@@ -136,9 +138,24 @@ class MainActivity : Activity() {
         // Initialize the canvas before constructing any UI that reads its settings.
         canvas = FlowCanvasView(this)
 
-        val root = FrameLayout(this).apply {
+        val root = object : FrameLayout(this) {
+            override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+                if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+                    val menu = activeMenuView
+                    if (menu != null) {
+                        val loc = IntArray(2)
+                        menu.getLocationOnScreen(loc)
+                        val inside = event.rawX >= loc[0] && event.rawX < loc[0] + menu.width &&
+                                event.rawY >= loc[1] && event.rawY < loc[1] + menu.height
+                        if (!inside) closeStyledPopup()
+                    }
+                }
+                return super.dispatchTouchEvent(event)
+            }
+        }.apply {
             setBackgroundColor(if (uiDark) 0xff0f172a.toInt() else Color.WHITE)
         }
+        rootView = root
         root.setOnApplyWindowInsetsListener { v, insets ->
             val top = if (android.os.Build.VERSION.SDK_INT >= 30) insets.getInsets(WindowInsets.Type.statusBars()).top else insets.systemWindowInsetTop
             val bottom = if (android.os.Build.VERSION.SDK_INT >= 30) insets.getInsets(WindowInsets.Type.navigationBars()).bottom else insets.systemWindowInsetBottom
@@ -358,9 +375,16 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun closeStyledPopup() {
+        val menu = activeMenuView ?: return
+        (menu.parent as? ViewGroup)?.removeView(menu)
+        activeMenuView = null
+    }
+
     private fun showStyledPopup(title:String, items:List<String>, anchor:View?=null, separatorBefore:Set<Int> = emptySet(), onChoice:(Int)->Unit){
+        closeStyledPopup()
+
         val dark=uiDark
-        lateinit var popup: PopupWindow
         val scaledDensity=resources.displayMetrics.scaledDensity
         val horizontalPadding=dp(14)
         val buttonHeight=dp(48)
@@ -369,8 +393,10 @@ class MainActivity : Activity() {
         val menuBackground=if(dark)0xff1e293b.toInt() else 0xfff1f5f9.toInt()
         val separatorColor=if(dark)0xff475569.toInt() else 0xffcbd5e1.toInt()
 
-        // Size every item to the widest label in THIS menu only. The popup
-        // itself is exactly this width; there is no full-screen menu container.
+        // The menu is now an ordinary child of the Activity root, not a PopupWindow.
+        // That is deliberate: PopupWindow is a separate window, and Android may give
+        // its transparent window/decor a much larger effective footprint than the
+        // visible buttons. A root child has exactly the measured bounds below.
         val menuButtonWidth = items.maxOf { label ->
             val measurePaint=Paint(Paint.ANTI_ALIAS_FLAG).apply { textSize=16f*scaledDensity }
             ceil(measurePaint.measureText(label)).toInt()+horizontalPadding*2
@@ -378,6 +404,7 @@ class MainActivity : Activity() {
 
         val outer=FrameLayout(this).apply{
             setBackgroundColor(Color.TRANSPARENT)
+            elevation=dp(12).toFloat()
         }
         val listBox=LinearLayout(this).apply{
             orientation=LinearLayout.VERTICAL
@@ -423,7 +450,10 @@ class MainActivity : Activity() {
                     setColor(menuBackground)
                     setStroke(dp(1),if(dark)0xff334155.toInt() else 0xffe2e8f0.toInt())
                 }
-                setOnClickListener{popup.dismiss();onChoice(index)}
+                setOnClickListener{
+                    closeStyledPopup()
+                    onChoice(index)
+                }
             },LinearLayout.LayoutParams(menuButtonWidth,buttonHeight))
         }
 
@@ -432,40 +462,27 @@ class MainActivity : Activity() {
             View.MeasureSpec.makeMeasureSpec(0,View.MeasureSpec.UNSPECIFIED)
         )
         val totalHeight=outer.measuredHeight
-        popup=PopupWindow(outer,menuButtonWidth,totalHeight,true).apply{
-            setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
-            elevation=dp(12).toFloat()
-            isOutsideTouchable=true
-            isClippingEnabled=true
+        val rootLoc=IntArray(2)
+        rootView.getLocationOnScreen(rootLoc)
+        val rootWidth=(rootView.width-rootView.paddingLeft-rootView.paddingRight).coerceAtLeast(menuButtonWidth)
+        val rootHeight=(rootView.height-rootView.paddingTop-rootView.paddingBottom).coerceAtLeast(totalHeight)
+
+        val params=FrameLayout.LayoutParams(menuButtonWidth,totalHeight)
+        if(anchor!=null){
+            val anchorLoc=IntArray(2)
+            anchor.getLocationOnScreen(anchorLoc)
+            var left=anchorLoc[0]-rootLoc[0]-rootView.paddingLeft
+            val top=anchorLoc[1]-rootLoc[1]-rootView.paddingTop+anchor.height+dp(2)
+            left=left.coerceIn(0,(rootWidth-menuButtonWidth).coerceAtLeast(0))
+            params.leftMargin=left
+            params.topMargin=top.coerceIn(0,(rootHeight-totalHeight).coerceAtLeast(0))
+        }else{
+            params.leftMargin=(rootWidth-menuButtonWidth)/2
+            params.topMargin=(rootHeight-totalHeight)/2
         }
 
-        fun installPopupOcclusion() {
-            outer.post {
-                val listLoc=IntArray(2)
-                val canvasLoc=IntArray(2)
-                listBox.getLocationOnScreen(listLoc)
-                canvas.getLocationOnScreen(canvasLoc)
-
-                // Mask only the popup's exact footprint, including the tiny
-                // inter-button gaps. Nothing outside the menu rectangle is
-                // occluded, so the canvas remains fully visible elsewhere.
-                val rect=RectF(
-                    (listLoc[0]-canvasLoc[0]).toFloat(),
-                    (listLoc[1]-canvasLoc[1]).toFloat(),
-                    (listLoc[0]+listBox.width-canvasLoc[0]).toFloat(),
-                    (listLoc[1]+listBox.height-canvasLoc[1]).toFloat()
-                )
-                canvas.setPopupOcclusionRects(listOf(rect))
-            }
-        }
-        popup.setOnDismissListener { canvas.setPopupOcclusionRects(emptyList()) }
-        if(anchor!=null) {
-            popup.showAsDropDown(anchor,0,dp(2))
-            installPopupOcclusion()
-        } else {
-            popup.showAtLocation(window.decorView,Gravity.CENTER,0,0)
-            installPopupOcclusion()
-        }
+        rootView.addView(outer,params)
+        activeMenuView=outer
     }
 
     private fun showCompactPopup(anchor:View, title:String, items:List<String>, onChoice:(Int)->Unit){
