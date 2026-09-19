@@ -72,7 +72,7 @@ class FlowCanvasView(context: Context) : View(context) {
             // the new focus point. This gives true two-finger pan + pinch zoom.
             panX += fx - lastScaleFocusX
             panY += fy - lastScaleFocusY
-            scale = (scale * detector.scaleFactor).coerceIn(0.25f, 5f)
+            scale = (scale * detector.scaleFactor).coerceIn(0.05f, 5f)
             panX = fx - (fx - panX) * (scale / old)
             panY = fy - (fy - panY) * (scale / old)
             lastScaleFocusX = fx
@@ -872,7 +872,7 @@ class FlowCanvasView(context: Context) : View(context) {
         if (raw.isBlank()) return
         runCatching {
             val o = JSONObject(raw)
-            scale = o.optDouble("scale", 1.0).toFloat().coerceIn(0.25f, 5f)
+            scale = o.optDouble("scale", 1.0).toFloat().coerceIn(0.05f, 5f)
             panX = o.optDouble("panX", 0.0).toFloat()
             panY = o.optDouble("panY", 0.0).toFloat()
             invalidate()
@@ -880,5 +880,5 @@ class FlowCanvasView(context: Context) : View(context) {
     }
 
     fun resetViewport(){scale=1f;panX=0f;panY=0f;invalidate()}
-    fun fitContent(){if(document.elements.isEmpty()){resetViewport();return};val minX=document.elements.minOf{it.x};val minY=document.elements.minOf{it.y};val maxX=document.elements.maxOf{it.x+it.width};val maxY=document.elements.maxOf{it.y+it.height};val pad=80f;val sx=width/(maxX-minX+pad*2);val sy=height/(maxY-minY+pad*2);scale=min(sx,sy).coerceIn(.25f,5f);panX=width/2f-(minX+(maxX-minX)/2f)*scale;panY=height/2f-(minY+(maxY-minY)/2f)*scale;invalidate()}
+    fun fitContent(){if(document.elements.isEmpty()){resetViewport();return};val minX=document.elements.minOf{it.x};val minY=document.elements.minOf{it.y};val maxX=document.elements.maxOf{it.x+it.width};val maxY=document.elements.maxOf{it.y+it.height};val pad=80f;val sx=width/(maxX-minX+pad*2);val sy=height/(maxY-minY+pad*2);scale=min(sx,sy).coerceIn(.05f,5f);panX=width/2f-(minX+(maxX-minX)/2f)*scale;panY=height/2f-(minY+(maxY-minY)/2f)*scale;invalidate()}
 }
