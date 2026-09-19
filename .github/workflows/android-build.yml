@@ -41,7 +41,7 @@ jobs:
       - name: Rename APK to FlowForge-vX.X.X.apk
         id: release_name
         run: |
-          VERSION_NAME=$(sed -n 's/.*versionName = "\(.*\)"/\1/p' app/build.gradle.kts)
+          VERSION_NAME=$(sed -n 's/.*versionName = "\(.*\)"/\1/p' app/build.gradle.kts | tr -d '\r')
           if [ -z "$VERSION_NAME" ]; then
             echo "Could not read versionName from app/build.gradle.kts" >&2
             exit 1
