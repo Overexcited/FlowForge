@@ -18,6 +18,7 @@ import com.flowforge.app.mermaid.Mermaid
 import com.flowforge.app.model.*
 import com.flowforge.app.templates.Templates
 import com.flowforge.app.ui.FlowCanvasView
+import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -150,7 +151,7 @@ class MainActivity : Activity() {
             setPadding(dp(6), dp(5), dp(6), dp(5))
             setBackgroundColor(if (uiDark) 0xff020617.toInt() else 0xff0f172a.toInt())
         }
-        top.addView(iconButton("☰", "Menu") { mainMenu() }.also { menuButton = it })
+        top.addView(iconButton("\u2630", "Menu") { mainMenu() }.also { menuButton = it })
         val titleGroup = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -169,9 +170,9 @@ class MainActivity : Activity() {
             rightMargin = dp(6)
         })
         top.addView(titleGroup, LinearLayout.LayoutParams(0, dp(52), 1f))
-        top.addView(iconButton("↶", "Undo") { undo() }.also { undoButton = it })
-        top.addView(iconButton("↷", "Redo") { redo() }.also { redoButton = it })
-        top.addView(iconButton("＋", "Add") { addMenu() }.also { addButton = it })
+        top.addView(iconButton("\u21B6", "Undo") { undo() }.also { undoButton = it })
+        top.addView(iconButton("\u21B7", "Redo") { redo() }.also { redoButton = it })
+        top.addView(iconButton("\uFF0B", "Add") { addMenu() }.also { addButton = it })
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(if (uiDark) 0xff0f172a.toInt() else Color.WHITE)
@@ -279,7 +280,7 @@ class MainActivity : Activity() {
                 typeface = android.graphics.Typeface.DEFAULT
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding(dp(12), 0, dp(12), 0)
-                text = "${if(documentUri != null) displayDocumentName(documentName) else "Untitled"}${if(documentDirty)" • Unsaved" else ""}  •  ${doc.elements.size} blocks  •  ${doc.connections.size} connections"
+                text = "${if(documentUri != null) displayDocumentName(documentName) else "Untitled"}${if(documentDirty)" \u2022 Unsaved" else ""}  \u2022  ${doc.elements.size} blocks  \u2022  ${doc.connections.size} connections"
             }
         }
         val bar=contextBar ?: return
@@ -290,7 +291,7 @@ class MainActivity : Activity() {
         if(canvas.customShapeMode){
             bar.visibility=View.VISIBLE; scroll.visibility=View.VISIBLE
             bar.addView(TextView(this).apply{text="Draw Custom Shape";textSize=12f;setTextColor(if(uiDark)Color.WHITE else 0xff172033.toInt());setPadding(4,0,dp(8),0)},LinearLayout.LayoutParams(0,WRAP_CONTENT,1f))
-            bar.addView(smallButton("✓"){canvas.commitCustomShape()})
+            bar.addView(smallButton("\u2713"){canvas.commitCustomShape()})
             bar.addView(smallButton("Cancel"){canvas.cancelCustomShapeMode()})
         } else if(e!=null && !canvas.connectionMode){
             bar.visibility=View.VISIBLE; scroll.visibility=View.VISIBLE
@@ -334,7 +335,7 @@ class MainActivity : Activity() {
 
     private fun mainMenu(){
         val anchor=menuButton ?: return
-        showStyledPopup("FlowForge", listOf("Recents","Save As…","Open…","Fit diagram","Settings"), anchor, emptySet()){which->
+        showStyledPopup("FlowForge", listOf("Recents","Save As...","Open...","Fit diagram","Settings"), anchor, emptySet()){which->
             when(which){
                 0->recents()
                 1->saveAs()
@@ -360,64 +361,83 @@ class MainActivity : Activity() {
     private fun showStyledPopup(title:String, items:List<String>, anchor:View?=null, separatorBefore:Set<Int> = emptySet(), onChoice:(Int)->Unit){
         val dark=uiDark
         lateinit var popup: PopupWindow
+        val scaledDensity=resources.displayMetrics.scaledDensity
+        val horizontalPadding=dp(14)
+        val buttonHeight=dp(48)
+        val buttonGap=dp(4)
+        val popupPadding=dp(6)
+
+        // Match every item to the width of the widest item in this menu. This
+        // preserves the existing natural width while making the menu visually
+        // uniform.
+        val menuButtonWidth = items.maxOf { label ->
+            val measurePaint=Paint(Paint.ANTI_ALIAS_FLAG).apply { textSize=16f*scaledDensity }
+            ceil(measurePaint.measureText(label)).toInt()+horizontalPadding*2
+        }
+
         val outer=LinearLayout(this).apply{
             orientation=LinearLayout.VERTICAL
-            setPadding(dp(6),dp(6),dp(6),dp(6))
+            setPadding(popupPadding,popupPadding,popupPadding,popupPadding)
             setBackgroundColor(Color.TRANSPARENT)
         }
-        outer.addView(TextView(this).apply{
-            text=title; textSize=14f; setTypeface(null,Typeface.BOLD);
-            // Keep the title row's exact size/padding, but hide the title text.
-            setTextColor(Color.TRANSPARENT)
-            gravity=Gravity.CENTER_VERTICAL; includeFontPadding=false
-            setPadding(dp(10),dp(6),dp(10),dp(8))
-        },LinearLayout.LayoutParams(WRAP_CONTENT,dp(34)))
-        val listBox=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL}
+        val listBox=LinearLayout(this).apply{
+            orientation=LinearLayout.VERTICAL
+            setBackgroundColor(Color.TRANSPARENT)
+        }
         items.forEachIndexed{index,label->
             if(index in separatorBefore) listBox.addView(View(this).apply{
                 setBackgroundColor(if(dark)0xff475569.toInt() else 0xffcbd5e1.toInt())
-            },LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,dp(3)).apply{setMargins(dp(15),dp(5),dp(15),dp(5))})
+            },LinearLayout.LayoutParams(menuButtonWidth,dp(2)).apply{setMargins(0,dp(2),0,dp(2))})
             listBox.addView(TextView(this).apply{
                 text=label; textSize=16f; gravity=Gravity.CENTER_VERTICAL; includeFontPadding=false; isSingleLine=true
                 setTextColor(if(dark)Color.WHITE else 0xff172033.toInt())
-                setPadding(dp(14),0,dp(14),0)
+                setPadding(horizontalPadding,0,horizontalPadding,0)
                 background=GradientDrawable().apply{
                     cornerRadius=dp(9).toFloat()
                     setColor(if(dark)0xff1e293b.toInt() else 0xfff1f5f9.toInt())
                     setStroke(dp(1),if(dark)0xff334155.toInt() else 0xffe2e8f0.toInt())
                 }
                 setOnClickListener{popup.dismiss();onChoice(index)}
-            },LinearLayout.LayoutParams(WRAP_CONTENT,dp(48)).apply{setMargins(0,dp(2),0,dp(2))})
+            },LinearLayout.LayoutParams(menuButtonWidth,buttonHeight).apply{setMargins(0,buttonGap/2,0,buttonGap/2)})
         }
-        val scroll=ScrollView(this).apply{
-            isFillViewport=true; isVerticalScrollBarEnabled=false; addView(listBox)
-        }
-        outer.addView(scroll,LinearLayout.LayoutParams(WRAP_CONTENT,dp(8+items.size*52+separatorBefore.size*11).coerceAtMost(dp(500).toInt())))
-        popup=PopupWindow(outer,WRAP_CONTENT,WRAP_CONTENT,true).apply{
+        val totalHeight = popupPadding*2 + items.size*buttonHeight + items.size*buttonGap + separatorBefore.size*dp(6)
+        outer.addView(listBox,LinearLayout.LayoutParams(menuButtonWidth,totalHeight-popupPadding*2))
+        popup=PopupWindow(outer,menuButtonWidth+popupPadding*2,totalHeight,true).apply{
             setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
             elevation=dp(12).toFloat(); isOutsideTouchable=true
         }
-        fun installBlockOcclusion() {
+
+        fun installPopupOcclusion() {
             outer.post {
-                val popupLoc = IntArray(2)
-                val canvasLoc = IntArray(2)
-                outer.getLocationOnScreen(popupLoc)
+                val listLoc=IntArray(2)
+                val canvasLoc=IntArray(2)
+                listBox.getLocationOnScreen(listLoc)
                 canvas.getLocationOnScreen(canvasLoc)
-                canvas.setPopupBlockOcclusion(RectF(
-                    (popupLoc[0] - canvasLoc[0]).toFloat(),
-                    (popupLoc[1] - canvasLoc[1]).toFloat(),
-                    (popupLoc[0] - canvasLoc[0] + outer.width).toFloat(),
-                    (popupLoc[1] - canvasLoc[1] + outer.height).toFloat()
-                ))
+
+                // Only mask the actual button footprints and their tiny gaps.
+                // The rest of the popup remains transparent, so the canvas is
+                // never visually covered by an invisible menu panel.
+                val masks=mutableListOf<RectF>()
+                for(i in 0 until listBox.childCount){
+                    val child=listBox.getChildAt(i)
+                    if(child is TextView){
+                        val left=listLoc[0]+child.left-canvasLoc[0]
+                        val top=listLoc[1]+child.top-buttonGap/2-canvasLoc[1]
+                        val right=listLoc[0]+child.right-canvasLoc[0]
+                        val bottom=listLoc[1]+child.bottom+buttonGap/2-canvasLoc[1]
+                        masks += RectF(left.toFloat(),top.toFloat(),right.toFloat(),bottom.toFloat())
+                    }
+                }
+                canvas.setPopupOcclusionRects(masks)
             }
         }
-        popup.setOnDismissListener { canvas.setPopupBlockOcclusion(null) }
+        popup.setOnDismissListener { canvas.setPopupOcclusionRects(emptyList()) }
         if(anchor!=null) {
-            popup.showAsDropDown(anchor,-dp(2),dp(2))
-            installBlockOcclusion()
+            popup.showAsDropDown(anchor,-popupPadding,dp(2))
+            installPopupOcclusion()
         } else {
             popup.showAtLocation(window.decorView,Gravity.CENTER,0,0)
-            installBlockOcclusion()
+            installPopupOcclusion()
         }
     }
 
@@ -964,7 +984,7 @@ class MainActivity : Activity() {
     private fun cloneElement(e:FlowElement){val before=doc.deepCopy();val copy=e.copy(id=java.util.UUID.randomUUID().toString(),x=e.x+maxOf(canvas.gridSize,40f),y=e.y+maxOf(canvas.gridSize,40f));var tries=0;while(doc.elements.any{overlaps(it,copy)}&&tries<20){copy.x+=40f;copy.y+=40f;tries++};doc.elements+=copy;canvas.selectedElementId=copy.id;canvas.selectedConnectionId=null;history.record(before,doc.deepCopy());canvas.invalidate();updateUi()}
     private fun overlaps(a:FlowElement,b:FlowElement)=a.x<b.x+b.width&&a.x+a.width>b.x&&a.y<b.y+b.height&&a.y+a.height>b.y
 
-    private fun saveAsset(e:FlowElement){val input=EditText(this).apply{hint="Building block name";setText(e.label.ifBlank{"Building block"});setTextColor(if(uiDark)Color.WHITE else 0xff172033.toInt());setHintTextColor(if(uiDark)0xff94a3b8.toInt() else 0xff64748b.toInt())};dialogBuilder().setTitle("Save as Building Block").setMessage("Saves this block only — connections are not included.").setView(input).setPositiveButton("Save"){_,_->assets.save(ElementAsset(name=input.text.toString().trim().ifBlank{"Building block"},element=e.copy(id=java.util.UUID.randomUUID().toString(),x=0f,y=0f)));toast("Building block saved")}.setNegativeButton("Cancel",null).show()}
+    private fun saveAsset(e:FlowElement){val input=EditText(this).apply{hint="Building block name";setText(e.label.ifBlank{"Building block"});setTextColor(if(uiDark)Color.WHITE else 0xff172033.toInt());setHintTextColor(if(uiDark)0xff94a3b8.toInt() else 0xff64748b.toInt())};dialogBuilder().setTitle("Save as Building Block").setMessage("Saves this block only - connections are not included.").setView(input).setPositiveButton("Save"){_,_->assets.save(ElementAsset(name=input.text.toString().trim().ifBlank{"Building block"},element=e.copy(id=java.util.UUID.randomUUID().toString(),x=0f,y=0f)));toast("Building block saved")}.setNegativeButton("Cancel",null).show()}
     private fun assetPicker(){
         val list=assets.all()
         if(list.isEmpty()){dialogBuilder().setTitle("Building Blocks").setMessage("No saved building blocks yet. Select a block and use Save Block.").setPositiveButton("OK",null).show();return}
@@ -1036,7 +1056,7 @@ class MainActivity : Activity() {
         dialog.show()
     }
     private fun insertAsset(a:ElementAsset){val before=doc.deepCopy();val e=a.element.copy(id=java.util.UUID.randomUUID().toString(),x=300f,y=220f);doc.elements+=e;canvas.selectedElementId=e.id;canvas.selectedConnectionId=null;history.record(before,doc.deepCopy());documentDirty=true;canvas.invalidate();updateUi()}
-    private fun showNotes(e:FlowElement){dialogBuilder().setTitle("Notes — ${e.label}").setMessage(e.notes.ifBlank{"No notes attached."}).setPositiveButton("Close",null).show()}
+    private fun showNotes(e:FlowElement){dialogBuilder().setTitle("Notes - ${e.label}").setMessage(e.notes.ifBlank{"No notes attached."}).setPositiveButton("Close",null).show()}
     private fun templates(){
         val built=Templates.all()
         val names=built.map{it.first}
@@ -1097,7 +1117,7 @@ class MainActivity : Activity() {
 
     private fun showSaveAsTypeMenu(){
         val labels=listOf("FlowForge JSON","Mermaid","PNG","PNG Dark","PDF","PDF Dark")
-        showCenteredCompactPopup("Save As…",labels){which->when(which){
+        showCenteredCompactPopup("Save As...",labels){which->when(which){
             0->startSaveAsJson()
             1->startSaveAsMermaid()
             2->startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply{type="image/png";putExtra(Intent.EXTRA_TITLE,newUntitledFileName("png"));addCategory(Intent.CATEGORY_OPENABLE)},SAVE_IMAGE)

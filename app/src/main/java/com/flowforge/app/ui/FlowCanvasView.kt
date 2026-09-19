@@ -32,12 +32,13 @@ class FlowCanvasView(context: Context) : View(context) {
     private var connectionStartId: String? = null
     private var connectionStartSide: ConnectionSide? = null
     private val customGesture = mutableListOf<PointF>()
-    // When a popup menu is open, hide only the block-rendering layer beneath it.
-    // The grid and connections remain visible through the popup's transparent gaps.
-    private var popupBlockOcclusion: RectF? = null
+    // When a popup menu is open, mask only the actual button footprints and
+    // their small inter-button gaps. Everything else on the canvas remains
+    // visible through the transparent popup window.
+    private var popupOcclusionRects: List<RectF> = emptyList()
 
-    fun setPopupBlockOcclusion(rectInView: RectF?) {
-        popupBlockOcclusion = rectInView?.let { RectF(it) }
+    fun setPopupOcclusionRects(rectsInView: List<RectF>) {
+        popupOcclusionRects = rectsInView.map { RectF(it) }
         invalidate()
     }
 
@@ -143,7 +144,7 @@ class FlowCanvasView(context: Context) : View(context) {
         val interactive = includeSelection
         if (interactive && gridVisible) drawGrid(c)
         document.connections.forEach { drawConnection(c, it) }
-        val occlusionWorld = popupBlockOcclusion?.let { r ->
+        val occlusionWorld = popupOcclusionRects.map { r ->
             RectF(
                 (r.left - panX) / scale,
                 (r.top - panY) / scale,
@@ -152,34 +153,30 @@ class FlowCanvasView(context: Context) : View(context) {
             )
         }
         document.elements.forEach { element ->
-            if (occlusionWorld == null || !RectF.intersects(RectF(element.x, element.y, element.x + element.width, element.y + element.height), occlusionWorld)) {
-                drawElement(c, element)
-            }
+            val elementRect=RectF(element.x,element.y,element.x+element.width,element.y+element.height)
+            if (occlusionWorld.none { RectF.intersects(elementRect,it) }) drawElement(c, element)
         }
         if (includeSelection && connectionMode) document.elements.forEach { drawConnectionTargets(c, it) }
         if (customShapeMode && customGesture.size > 1) drawCustomPreview(c)
         if (includeSelection) selectedElement()?.let { drawSelection(c, it) }
 
-        // PopupWindow is a separate window, so merely skipping block drawing can
-        // still leave previously composited canvas pixels visible through its
-        // transparent gaps. Paint a canvas-layer mask over the popup footprint
-        // instead: it hides blocks, connections and selection graphics while
-        // redrawing the grid so the popup background remains visually transparent.
-        if (includeSelection) popupBlockOcclusion?.let { r ->
-            val mask = RectF(
-                (r.left - panX) / scale,
-                (r.top - panY) / scale,
-                (r.right - panX) / scale,
-                (r.bottom - panY) / scale
-            )
-            c.save()
-            c.clipRect(mask)
+        // PopupWindow is a separate window. Repaint only the small button/gap
+        // masks here so rounded button corners and inter-button gaps never reveal
+        // blocks, connections or grid lines. No larger invisible menu rectangle
+        // is painted over the canvas.
+        if (includeSelection && popupOcclusionRects.isNotEmpty()) {
             paint.pathEffect = null
             paint.style = Paint.Style.FILL
             paint.color = if (darkMode) Color.rgb(15, 23, 42) else Color.WHITE
-            c.drawRect(mask, paint)
-            if (interactive && gridVisible) drawGrid(c)
-            c.restore()
+            popupOcclusionRects.forEach { r ->
+                val mask=RectF(
+                    (r.left-panX)/scale,
+                    (r.top-panY)/scale,
+                    (r.right-panX)/scale,
+                    (r.bottom-panY)/scale
+                )
+                c.drawRect(mask,paint)
+            }
         }
     }
     private fun drawGrid(c: Canvas) {
