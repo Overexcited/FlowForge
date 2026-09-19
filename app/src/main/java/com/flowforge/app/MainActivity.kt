@@ -1063,7 +1063,7 @@ class MainActivity : Activity() {
         documentName="Untitled"
         documentUri=null
         documentFormat="NONE"
-        documentDirty=true
+        documentDirty=false
         canvas.fitContent()
         canvas.invalidate()
         updateUi()
@@ -1380,7 +1380,8 @@ class MainActivity : Activity() {
             }
         }
     }
-    private fun applyPreferences(){canvas.gridVisible=prefs.getBoolean("gridVisible",true);canvas.gridSize=prefs.getFloat("gridSize",40f);canvas.darkMode=prefs.getBoolean("darkMode",false);canvas.document=doc;applyThemeChrome();updateUi()}
+    private fun applyPreferences(){canvas.gridVisible=prefs.getBoolean("gridVisible",true);canvas.gridSize=10f
+        prefs.edit().putFloat("gridSize",10f).apply();canvas.darkMode=prefs.getBoolean("darkMode",false);canvas.document=doc;applyThemeChrome();updateUi()}
     private fun shapeName(s:ShapeType)=when(s){
         ShapeType.RECTANGLE->"Rectangle (sharp edges)"
         ShapeType.ROUNDED->"Rectangle (round edges)"
